@@ -2164,6 +2164,7 @@ SpellSpecificType SpellInfo::LoadSpellSpecific() const
                     else if (drink)
                         return SPELL_SPECIFIC_DRINK;
                 }
+/*
                 // scrolls effects
                 else
                 {
@@ -2179,6 +2180,7 @@ SpellSpecificType SpellInfo::LoadSpellSpecific() const
                             return SPELL_SPECIFIC_SCROLL;
                     }
                 }
+*/
                 break;
             }
         case SPELLFAMILY_MAGE:
