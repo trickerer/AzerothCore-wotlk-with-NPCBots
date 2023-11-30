@@ -115,6 +115,7 @@ struct boss_felblood_kaelthas : public ScriptedAI
 
     void JustDied(Unit*) override
     {
+        summons.DespawnAll();
         instance->SetBossState(DATA_KAELTHAS, DONE);
 
         if (GameObject* orb = instance->GetGameObject(DATA_ESCAPE_ORB))
