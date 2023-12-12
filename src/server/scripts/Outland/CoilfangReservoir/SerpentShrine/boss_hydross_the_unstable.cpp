@@ -15,8 +15,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ScriptMgr.h"
+#include "CreatureScript.h"
 #include "ScriptedCreature.h"
+#include "SpellScriptLoader.h"
 #include "serpent_shrine.h"
 
 enum Talk
@@ -164,7 +165,7 @@ struct boss_hydross_the_unstable : public BossAI
                 DoCastSelf(SPELL_MARK_OF_CORRUPTION6);
             }).Schedule(12150ms, GROUP_ABILITIES, [this](TaskContext context)
             {
-                DoCastRandomTarget(SPELL_VILE_SLUDGE, true);
+                DoCastRandomTarget(SPELL_VILE_SLUDGE, 0, 0.0f, true, true);
                 context.Repeat(9700ms, 32800ms);
             });
         }
@@ -195,7 +196,7 @@ struct boss_hydross_the_unstable : public BossAI
                 DoCastSelf(SPELL_MARK_OF_HYDROSS6);
             }).Schedule(12150ms, GROUP_ABILITIES, [this](TaskContext context)
             {
-                DoCastRandomTarget(SPELL_WATER_TOMB, true);
+                DoCastRandomTarget(SPELL_WATER_TOMB, 0, 0.0f, true, true);
                 context.Repeat(9700ms, 32800ms);
             });
         }
@@ -268,7 +269,7 @@ struct boss_hydross_the_unstable : public BossAI
         }
         else if (summon->GetEntry() == NPC_TAINTED_HYDROSS_ELEMENTAL)
         {
-            summon->SetOwnerGUID(me->GetGUID());
+            summon->setActive(true);
             summon->GetMotionMaster()->MovePath(summon->GetEntry() * 10, false);
         }
         else
@@ -356,3 +357,4 @@ void AddSC_boss_hydross_the_unstable()
     RegisterSpellScript(spell_hydross_cleansing_field_command);
     RegisterSpellScript(spell_hydross_mark_of_hydross);
 }
+
