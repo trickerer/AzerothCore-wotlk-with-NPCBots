@@ -2743,16 +2743,16 @@ public:
             std::string_view raceName;
             switch (race)
             {
-                case RACE_HUMAN:        raceName = "Human";     break;
-                case RACE_ORC:          raceName = "Orc";       break;
-                case RACE_DWARF:        raceName = "Dwarf";     break;
-                case RACE_NIGHTELF:     raceName = "Night Elf"; break;
-                case RACE_UNDEAD_PLAYER:raceName = "Forsaken";  break;
-                case RACE_TAUREN:       raceName = "Tauren";    break;
-                case RACE_GNOME:        raceName = "Gnome";     break;
-                case RACE_TROLL:        raceName = "Troll";     break;
-                case RACE_BLOODELF:     raceName = "Blood Elf"; break;
-                case RACE_DRAENEI:      raceName = "Draenei";   break;
+                case RACE_HUMAN:        raceName = "人類";     break;
+                case RACE_ORC:          raceName = "獸人";       break;
+                case RACE_DWARF:        raceName = "矮人";     break;
+                case RACE_NIGHTELF:     raceName = "夜精靈"; break;
+                case RACE_UNDEAD_PLAYER:raceName = "不死族";  break;
+                case RACE_TAUREN:       raceName = "牛頭人";    break;
+                case RACE_GNOME:        raceName = "地精";     break;
+                case RACE_TROLL:        raceName = "食人妖";     break;
+                case RACE_BLOODELF:     raceName = "血精靈"; break;
+                case RACE_DRAENEI:      raceName = "德萊尼";   break;
                 case RACE_NONE:         raceName = "No Race";   break;
                 default:                raceName = "Unknown";   break;
             }
