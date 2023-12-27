@@ -8808,6 +8808,7 @@ INSERT INTO `gossip_menu_option_locale` (`MenuID`, `OptionID`, `Locale`, `Option
 	(4581, 0, 'deDE', 'Ich benötige eine Kriegerausbildung.', NULL),
 	(4581, 0, 'esES', 'Necesito instrucción en el arte de la guerra.', NULL),
 	(4581, 0, 'esMX', 'Necesito instrucción en el arte de la guerra.', NULL);
+INSERT INTO `gossip_menu_option_locale` (`MenuID`, `OptionID`, `Locale`, `OptionText`, `BoxText`) VALUES
 	(4581, 0, 'frFR', 'Je souhaiterais recevoir un entraînement de guerrier.', NULL),
 	(4581, 0, 'koKR', '전사 훈련을 받고 싶습니다.', NULL),
 	(4581, 0, 'ruRU', 'Я хочу учиться искусству воинов.', NULL),
@@ -26386,6 +26387,7 @@ INSERT INTO `gossip_menu_option_locale` (`MenuID`, `OptionID`, `Locale`, `Option
 	(10361, 0, 'deDE', 'Ich benÃ¶tige eine Ausbildung.', ''),
 	(10361, 0, 'esES', 'Instrúyeme.', NULL),
 	(10361, 0, 'esMX', 'Instrúyeme.', NULL);
+INSERT INTO `gossip_menu_option_locale` (`MenuID`, `OptionID`, `Locale`, `OptionText`, `BoxText`) VALUES
 	(10361, 0, 'frFR', 'Entrainez moi', NULL),
 	(10361, 0, 'koKR', '훈련을 받고 싶습니다.', NULL),
 	(10361, 0, 'ruRU', 'Обучите меня.', NULL),
