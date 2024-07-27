@@ -5443,7 +5443,17 @@ void bot_ai::CalculateAttackPos(Unit* target, Position& pos, bool& force) const
             if (itr->second && (IsTank(itr->second) || IsOffTank(itr->second)))
                 moveTarget = itr->second;
 
-        pos.Relocate(moveTarget);
+        // Decide if the bot needs to move
+        float thresholdDistance = 1.5f;
+        bool rangedBotNeedsToMove = std::abs(me->GetDistance(moveTarget)) > thresholdDistance;
+        if (rangedBotNeedsToMove)
+        {
+            // Randomise and adjust the bot's position
+            float randomModifier = irand(0, 1) ? 1.0f : -1.0f;
+            float absoluteAngle = me->GetAbsoluteAngle(moveTarget);
+            pos.Relocate(Position(moveTarget->GetPositionX() + randomModifier * thresholdDistance * std::cos(absoluteAngle), moveTarget->GetPositionY() + randomModifier * thresholdDistance * std::sin(absoluteAngle)));
+        }
+        
         force = true;
         return;
     }
