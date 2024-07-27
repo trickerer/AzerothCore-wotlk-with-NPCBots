@@ -6600,7 +6600,20 @@ Unit* bot_ai::FindDistantTauntTarget(float maxdist, bool ally) const
         return nullptr;
 
     Unit* unit = unitList.size() == 1 ? *unitList.begin() : Acore::Containers::SelectRandomContainerElement(unitList);
-    return ally ? unit->GetVictim() : unit;
+
+    Unit* victim = unit->GetVictim();
+
+    // Bots should not taunt from a tank when off-tanking
+    bool victimIsTank = IsTank(victim);
+    if (victimIsTank && IsOffTank())
+        return nullptr;
+
+    // Bots should not taunt from an off-tank when tanking
+    bool victimIsOffTank = victimIsTank && !IsOffTank();
+    if (victimIsOffTank && IsPointedOffTankingTarget(unit))
+        return nullptr;
+    
+    return ally ? victim : unit;
 }
 //Finds target for Warlock's Mana Drain
 //Returns nearby CCed unit with most mana
