@@ -1,13 +1,13 @@
 --
 SET FOREIGN_KEY_CHECKS=0;
 -- ----------------------------
--- Table structure for creature_template_outfits
+-- Table structure for creature_template_npcbot_outfits
 -- ----------------------------
-DROP TABLE IF EXISTS `creature_template_outfits`;
-CREATE TABLE IF NOT EXISTS `creature_template_outfits` (
+DROP TABLE IF EXISTS `creature_template_npcbot_outfits`;
+CREATE TABLE IF NOT EXISTS `creature_template_npcbot_outfits` (
   `entry` int(10) unsigned NOT NULL,
   `race` tinyint(3) unsigned NOT NULL DEFAULT '1',
-  `gender` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT '0 for male, 1 for female',
+  `gender` tinyint(3) unsigned NOT NULL DEFAULT '0' COMMENT 'Male (0) or Female (1)',
   `skin` tinyint(3) unsigned NOT NULL DEFAULT '0',
   `face` tinyint(3) unsigned NOT NULL DEFAULT '0',
   `hair` tinyint(3) unsigned NOT NULL DEFAULT '0',
@@ -25,11 +25,11 @@ CREATE TABLE IF NOT EXISTS `creature_template_outfits` (
   `back` int(10) unsigned NOT NULL DEFAULT '0',
   `tabard` int(10) unsigned NOT NULL DEFAULT '0',
   PRIMARY KEY (`entry`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='NPC Bot Outfit System';
 
 -- ----------------------------
 -- Records
 -- ----------------------------
-INSERT INTO `creature_template_outfits` VALUES
+INSERT INTO `creature_template_npcbot_outfits` VALUES
 ('70551', '2', '0', '0', '14', '9', '7', '5', '0', '0', '0', '0', '59194', '64674', '0', '36248', '0', '0', '0'),
 ('70552', '2', '0', '0', '14', '9', '7', '5', '0', '0', '0', '0', '59194', '64674', '0', '36248', '0', '0', '0');

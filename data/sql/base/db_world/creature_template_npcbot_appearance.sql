@@ -14,7 +14,7 @@ CREATE TABLE `creature_template_npcbot_appearance` (
   `haircolor` tinyint(3) unsigned NOT NULL DEFAULT '0',
   `features` tinyint(3) unsigned NOT NULL DEFAULT '0',
   PRIMARY KEY (`entry`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='NPC Bot Appearance System';
 
 -- ----------------------------
 -- Records

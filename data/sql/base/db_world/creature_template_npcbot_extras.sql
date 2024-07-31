@@ -9,7 +9,7 @@ CREATE TABLE `creature_template_npcbot_extras` (
   `class` tinyint(3) unsigned NOT NULL DEFAULT '1',
   `race` tinyint(3) unsigned NOT NULL DEFAULT '1',
   PRIMARY KEY (`entry`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='NPC Bot Extras System';
 
 -- ----------------------------
 -- Records

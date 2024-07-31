@@ -1,5 +1,8 @@
 --
 SET FOREIGN_KEY_CHECKS=0;
+-- ----------------------------
+-- Table structure for characters_npcbot_logs
+-- ----------------------------
 DROP TABLE IF EXISTS `characters_npcbot_logs`;
 CREATE TABLE `characters_npcbot_logs` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -16,4 +19,4 @@ CREATE TABLE `characters_npcbot_logs` (
   `param5` varchar(51) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='NPC Bot Logs System';

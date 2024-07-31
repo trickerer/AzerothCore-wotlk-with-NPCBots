@@ -33,4 +33,4 @@ CREATE TABLE `characters_npcbot_stats` (
   `expertise` int(10) unsigned NOT NULL DEFAULT '0',
   `armorPenPct` float unsigned NOT NULL DEFAULT '0',
   PRIMARY KEY (`entry`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='NPC Bot Stats System';

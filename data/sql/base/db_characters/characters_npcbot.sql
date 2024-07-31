@@ -6,10 +6,11 @@ SET FOREIGN_KEY_CHECKS=0;
 DROP TABLE IF EXISTS `characters_npcbot`;
 CREATE TABLE `characters_npcbot` (
   `entry` int(10) unsigned NOT NULL COMMENT 'creature_template.entry',
-  `owner` int(10) unsigned NOT NULL DEFAULT '0' COMMENT 'characters.guid (lowguid)',
-  `roles` int(10) unsigned NOT NULL COMMENT 'bitmask: tank(1),dps(2),heal(4),ranged(8)',
+  `owner` int(10) unsigned NOT NULL DEFAULT '0' COMMENT 'characters.guid',
+  `roles` int(10) unsigned NOT NULL COMMENT 'Bitmask: Tank(1), DPS(2), Healer(4), Ranged(8)',
   `spec` tinyint(3) unsigned NOT NULL DEFAULT '1',
   `faction` int(10) unsigned NOT NULL DEFAULT '35',
+  `hire_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `equipMhEx` int(10) unsigned NOT NULL DEFAULT '0',
   `equipOhEx` int(10) unsigned NOT NULL DEFAULT '0',
   `equipRhEx` int(10) unsigned NOT NULL DEFAULT '0',
@@ -30,4 +31,4 @@ CREATE TABLE `characters_npcbot` (
   `equipNeck` int(10) unsigned NOT NULL DEFAULT '0',
   `spells_disabled` longtext,
   PRIMARY KEY (`entry`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='NPC Bot Character System';

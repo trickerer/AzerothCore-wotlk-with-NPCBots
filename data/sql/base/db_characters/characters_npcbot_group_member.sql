@@ -11,4 +11,4 @@ CREATE TABLE `characters_npcbot_group_member` (
   `subgroup` tinyint(3) unsigned NOT NULL DEFAULT '0',
   `roles` tinyint(3) unsigned NOT NULL DEFAULT '0',
   PRIMARY KEY (`entry`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='NPC Bot Group System';
