@@ -100,3 +100,7 @@ local.properties
 # ==================
 .cache
 compile_commands.json
+
+#NPCBots
+!/data/sql/custom/db_characters/
+!/data/sql/custom/db_world/

@@ -30,6 +30,10 @@
 #include "SpellMgr.h"
 #include "WorldState.h"
 
+//npcbot
+#include "bot_ai.h"
+//end npcbot
+
 // Checks if object meets the condition
 // Can have CONDITION_SOURCE_TYPE_NONE && !mReferenceId if called from a special event (ie: eventAI)
 bool Condition::Meets(ConditionSourceInfo& sourceInfo)
@@ -64,6 +68,11 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
     {
         if (Unit* unit = object->ToUnit())
         {
+            //npcbot
+            if (object->IsNPCBot())
+                condMeets = true;
+            else
+            //end npcbot
             if (Player* player = unit->GetCharmerOrOwnerPlayerOrPlayerItself())
             {
                 // don't allow 0 items (it's checked during table load)
@@ -78,6 +87,11 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
     {
         if (Unit* unit = object->ToUnit())
         {
+            //npcbot
+            if (object->IsNPCBot())
+                condMeets = true; //for now
+            else
+            //end npcbot
             if (Player* player = unit->GetCharmerOrOwnerPlayerOrPlayerItself())
             {
                 condMeets = player->HasItemOrGemWithIdEquipped(ConditionValue1, 1);
@@ -92,6 +106,14 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
     {
         if (Unit* unit = object->ToUnit())
         {
+            //npcbot
+            if (object->IsNPCBot() && object->ToCreature()->GetBotAI() && !object->ToCreature()->IsFreeBot())
+            {
+                if (FactionEntry const* faction = sFactionStore.LookupEntry(ConditionValue1))
+                   condMeets = (ConditionValue2 & (1 << object->ToCreature()->GetBotOwner()->GetReputationMgr().GetRank(faction)));
+            }
+            else
+            //end npcbot
             if (Player* player = unit->GetCharmerOrOwnerPlayerOrPlayerItself())
             {
                 if (FactionEntry const* faction = sFactionStore.LookupEntry(ConditionValue1))
@@ -106,6 +128,11 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
     {
         if (Unit* unit = object->ToUnit())
         {
+            //npcbot
+            if (object->IsNPCBot())
+                condMeets = true;
+            else
+            //end npcbot
             if (Player* player = unit->GetCharmerOrOwnerPlayerOrPlayerItself())
             {
                 condMeets = player->HasAchieved(ConditionValue1);
@@ -117,6 +144,11 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
     {
         if (Unit* unit = object->ToUnit())
         {
+            //npcbot
+            if (object->IsNPCBot() && object->ToCreature()->GetBotAI() && !object->ToCreature()->IsFreeBot())
+                condMeets = object->ToCreature()->GetBotOwner()->GetTeamId() == ConditionValue1;
+            else
+            //end npcbot
             if (Player* player = unit->GetCharmerOrOwnerPlayerOrPlayerItself())
             {
                 // Xinef: DB Data compatibility...
@@ -142,6 +174,11 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
     {
         if (Unit* unit = object->ToUnit())
         {
+            //npcbot
+            if (object->IsNPCBot())
+                condMeets = object->ToCreature()->GetGender() == ConditionValue1;
+            else
+            //end npcbot
             if (Player* player = unit->GetCharmerOrOwnerPlayerOrPlayerItself())
             {
                 condMeets = player->getGender() == ConditionValue1;
@@ -153,6 +190,11 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
     {
         if (Unit* unit = object->ToUnit())
         {
+            //npcbot
+            if (object->IsNPCBot())
+                condMeets = true;
+            else
+            //end npcbot
             if (Player* player = unit->GetCharmerOrOwnerPlayerOrPlayerItself())
             {
                 condMeets = player->HasSkill(ConditionValue1) && player->GetBaseSkillValue(ConditionValue1) >= ConditionValue2;
@@ -259,6 +301,11 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo)
     {
         if (Unit* unit = object->ToUnit())
         {
+            //npcbot
+            if (object->GetTypeId() == TYPEID_UNIT && object->ToCreature()->GetBotAI())
+                condMeets = object->ToCreature()->GetBotAI()->HasSpell(sSpellMgr->GetSpellInfo(ConditionValue1)->GetFirstRankSpell()->Id);
+            else
+            //end npcbot
             if (Player* player = unit->GetCharmerOrOwnerPlayerOrPlayerItself())
             {
                 condMeets = player->HasSpell(ConditionValue1);

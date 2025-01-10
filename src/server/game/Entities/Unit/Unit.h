@@ -212,7 +212,7 @@ enum WeaponAttackType : uint8
     MAX_ATTACK
 };
 
-enum CombatRating
+enum CombatRating : uint8
 {
     CR_WEAPON_SKILL             = 0,
     CR_DEFENSE_SKILL            = 1,
@@ -280,7 +280,7 @@ struct DiminishingReturn
     uint32                  hitCount;
 };
 
-enum MeleeHitOutcome
+enum MeleeHitOutcome : uint8
 {
     MELEE_HIT_EVADE, MELEE_HIT_MISS, MELEE_HIT_DODGE, MELEE_HIT_BLOCK, MELEE_HIT_PARRY,
     MELEE_HIT_GLANCING, MELEE_HIT_CRIT, MELEE_HIT_CRUSHING, MELEE_HIT_NORMAL
@@ -344,6 +344,10 @@ private:
     // amalgamation constructor (used for proc)
     DamageInfo(DamageInfo const& dmg1, DamageInfo const& dmg2);
 
+    //npcbot
+    uint32 m_procEx = 0;
+    //end npcbot
+
 public:
     explicit DamageInfo(Unit* _attacker, Unit* _victim, uint32 _damage, SpellInfo const* _spellInfo, SpellSchoolMask _schoolMask, DamageEffectType _damageType, uint32 cleanDamage = 0);
     explicit DamageInfo(CalcDamageInfo const& dmgInfo); // amalgamation wrapper
@@ -367,6 +371,10 @@ public:
     [[nodiscard]] uint32 GetBlock() const { return m_block; };
 
     [[nodiscard]] uint32 GetUnmitigatedDamage() const;
+
+    //npcbot
+    [[nodiscard]] uint32 GetHitMask() const { return m_procEx; }
+    //end npcbot
 };
 
 class HealInfo
@@ -532,7 +540,7 @@ struct DeclinedName
     std::string name[MAX_DECLINED_NAME_CASES];
 };
 
-enum CurrentSpellTypes
+enum CurrentSpellTypes : uint8
 {
     CURRENT_MELEE_SPELL             = 0,
     CURRENT_GENERIC_SPELL           = 1,
@@ -836,6 +844,9 @@ public:
     [[nodiscard]] bool IsWithinRange(Unit const* obj, float dist) const;
     bool IsWithinCombatRange(Unit const* obj, float dist2compare) const;
     bool IsWithinMeleeRange(Unit const* obj, float dist = 0.f) const;
+    //npcbot: TC method transfer
+    bool IsWithinMeleeRangeAt(Position const& pos, Unit const* obj) const;
+    //end npcbot
     float GetMeleeRange(Unit const* target) const;
 
     void setAttackTimer(WeaponAttackType type, int32 time) { m_attackTimer[type] = time; }  /// @todo - Look to convert to std::chrono
@@ -921,6 +932,16 @@ public:
 
     void SetLastDamagedTargetGuid(ObjectGuid const& guid) { _lastDamagedTargetGuid = guid; }
     [[nodiscard]] ObjectGuid const& GetLastDamagedTargetGuid() const { return _lastDamagedTargetGuid; }
+    //npcbot: compatibility accessors
+    [[nodiscard]] inline uint8 GetRace(bool original = false) const { return getRace(original); }
+    [[nodiscard]] inline uint32 GetRaceMask() const { return getRaceMask(); }
+    [[nodiscard]] inline uint8 GetClass() const { return getClass(); }
+    [[nodiscard]] inline uint32 GetClassMask() const { return getClassMask(); }
+    [[nodiscard]] inline uint8 GetGender() const { return getGender(); }
+    inline void SetPowerType(Powers power) { setPowerType(power); }
+    [[nodiscard]] inline Powers GetPowerType() const { return getPowerType(); }
+    [[nodiscard]] uint8 GetStandState() const { return getStandState(); }
+    //end npcbot
 
     void AttackerStateUpdate (Unit* victim, WeaponAttackType attType = BASE_ATTACK, bool extra = false, bool ignoreCasting = false);
 
@@ -1096,7 +1117,14 @@ public:
 
     // Resilience
     static void ApplyResilience(Unit const* victim, float* crit, int32* damage, bool isCrit, CombatRating type);
+    //npcbot
+    /*
+    //end npcbot
     [[nodiscard]] bool CanApplyResilience() const { return m_applyResilience; }
+    //npcbot
+    */
+    [[nodiscard]] bool CanApplyResilience() const;
+    //end npcbot
 
     // Skills values
     [[nodiscard]] virtual uint32 GetShieldBlockValue() const = 0;
@@ -1201,6 +1229,15 @@ public:
     [[nodiscard]] float GetMeleeCritChanceReduction() const { return GetCombatRatingReduction(CR_CRIT_TAKEN_MELEE); }
     [[nodiscard]] float GetRangedCritChanceReduction() const { return GetCombatRatingReduction(CR_CRIT_TAKEN_RANGED); }
     [[nodiscard]] float GetSpellCritChanceReduction() const { return GetCombatRatingReduction(CR_CRIT_TAKEN_SPELL); }
+
+    //npcbot
+    void SetControlledByPlayer(bool set) { m_ControlledByPlayer = set; }
+    GameObject* GetFirstGameObjectById(uint32 id) const;
+    void SetCreator(Unit* creator);
+    Unit* GetCreator() const { return m_creator; }
+    Unit* m_creator = nullptr;
+    //end npcbot
+
 
     [[nodiscard]] uint32 GetMeleeCritDamageReduction(uint32 damage) const { return GetCombatRatingDamageReduction(CR_CRIT_TAKEN_MELEE, 2.2f, 33.0f, damage); }
     [[nodiscard]] uint32 GetRangedCritDamageReduction(uint32 damage) const { return GetCombatRatingDamageReduction(CR_CRIT_TAKEN_RANGED, 2.2f, 33.0f, damage); }
@@ -1560,7 +1597,12 @@ public:
     // Spells immunities
     void ApplySpellImmune(uint32 spellId, uint32 op, uint32 type, bool apply, SpellImmuneBlockType blockType = SPELL_BLOCK_TYPE_ALL);
     void ApplySpellDispelImmunity(SpellInfo const* spellProto, DispelType type, bool apply);
+    //npcbot
+    /*
     virtual bool IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell = nullptr);
+    */
+    virtual bool IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell = nullptr) const;
+    //end npcbot
     [[nodiscard]] bool IsImmunedToDamage(SpellSchoolMask meleeSchoolMask) const;
     [[nodiscard]] bool IsImmunedToDamage(SpellInfo const* spellInfo) const;
     [[nodiscard]] bool IsImmunedToDamage(Spell const* spell) const;
@@ -1638,6 +1680,11 @@ public:
     [[nodiscard]] virtual bool CanSwim() const;
     [[nodiscard]] bool CanFreeMove() const
     {
+        //npcbot: skip owner guid condition for bots
+        if (IsNPCBotOrPet())
+            return !HasUnitState(UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING | UNIT_STATE_IN_FLIGHT |
+                                 UNIT_STATE_ROOT | UNIT_STATE_STUNNED | UNIT_STATE_DISTRACTED);
+        //end npcbot
         return !HasUnitState(UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING | UNIT_STATE_IN_FLIGHT |
                              UNIT_STATE_ROOT | UNIT_STATE_STUNNED | UNIT_STATE_DISTRACTED) && !GetOwnerGUID();
     }
@@ -1698,7 +1745,12 @@ public:
     void  RemoveStandFlags(uint8 flags) { RemoveByteFlag(UNIT_FIELD_BYTES_1,  UNIT_BYTES_1_OFFSET_VIS_FLAG, flags); }
 
     // DeathState
+    //npcbot
+    /*
     DeathState getDeathState() { return m_deathState; };
+    */
+    DeathState getDeathState() const { return m_deathState; };
+    //end npcbot
     virtual void setDeathState(DeathState s, bool despawn = false);           // overwrited in Creature/Player/Pet
 
     [[nodiscard]] bool IsAlive() const { return (m_deathState == DeathState::Alive); };
@@ -1963,6 +2015,11 @@ public:
 
     void SendTeleportPacket(Position& pos);
 
+    //npcbot: TC method transfer
+    bool IsHighestExclusiveAuraEffect(SpellInfo const* spellInfo, AuraType auraType, int32 effectAmount, uint8 auraEffectMask, bool removeOtherAuraApplications = false);
+    //end npcbot
+
+
     void SendMovementFlagUpdate(bool self = false);
     void SendMovementWaterWalking(Player* sendTo);
     void SendMovementFeatherFall(Player* sendTo);
@@ -1988,6 +2045,11 @@ public:
     [[nodiscard]] bool CanNotReachTarget() const;
 
     bool m_cannotReachTarget;
+
+    //npcbot
+    bool HasReactive(ReactiveType reactive) const { return m_reactiveTimer[reactive] > 0; }
+    void ClearReactive(ReactiveType reactive);
+    //end npcbot
 
     //----------- Public variables ----------//
     uint32 m_extraAttacks;
