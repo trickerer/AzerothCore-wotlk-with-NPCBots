@@ -1,0 +1,6 @@
+log enable -f /azerothcore/env/dist/logs/lldb_log.txt lldb commands process
+target create /azerothcore/env/dist/bin/worldserver
+run
+bt
+frame variable
+thread backtrace all

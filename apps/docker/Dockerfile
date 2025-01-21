@@ -131,13 +131,21 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       libmysqlclient21 libreadline8 \
     gettext-base default-mysql-client \
-    lldb python3-lldb && \
     rm -rf /var/lib/apt/lists/*
 
-RUN chmod -R a+rX /usr/lib/llvm-14/lib/python3/dist-packages/lldb && \
-    chmod -R a+rX /usr/lib/llvm-14/lib/python3.10/dist-packages/lldb
+# Install conditional software based on the DEBUGGER argument
+RUN if [ "$DEBUGGER" = "lldb" ]; then \
 
-COPY apps/startup-scripts/gdb.conf /azerothcore/gdb.conf
+        apt-get install -y --no-install-recommends lldb python3-lldb; \
+        chmod -R a+rX /usr/lib/llvm-14/lib/python3/dist-packages/lldb && \
+        chmod -R a+rX /usr/lib/llvm-14/lib/python3.10/dist-packages/lldb; \
+        COPY apps/startup-scripts/.lldbinit /azerothcore/.lldbinit; \
+    elif [ "$DEBUGGER" = "gdb" ]; then \
+        apt-get install -y --no-install-recommends gdb; \
+        COPY apps/startup-scripts/gdb.conf /azerothcore/gdb.conf; \
+    else \
+        echo "No debugger specified, skipping installation."; \
+    fi
 
 COPY --from=build /azerothcore/env/dist/etc/ /azerothcore/env/ref/etc
 

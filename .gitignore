@@ -24,8 +24,8 @@
 /src/server/scripts/Custom/*
 !/src/server/scripts/Custom/README.md
 
-/*.override.yml
-/*.override.yaml
+#/*.override.yml
+#/*.override.yaml
 
 !.gitkeep
 
@@ -100,3 +100,7 @@ local.properties
 #NPCBots
 !/data/sql/custom/db_characters/
 !/data/sql/custom/db_world/
+
+#lua_scripts
+scripts/*
+

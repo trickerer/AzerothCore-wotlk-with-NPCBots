@@ -1,0 +1,35 @@
+services:
+  ac-database:
+    healthcheck:
+      test: "/usr/bin/mysql --host=127.0.0.1 --user=root --password=$$MYSQL_ROOT_PASSWORD --execute \"SELECT 1;\""
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # mount the modules directory so that updates to sql scripts are updated without the need to rebuild
+  ac-data-import:
+    volumes:
+      - ${DOCKER_VOL_MODULES:-./modules}:/azerothcore/modules
+
+  ac-worldserver:
+    environment:
+      - DEBUGGER=${DEBUGGER:-0}
+    command: >
+      /bin/bash -c 'if [ "$$DEBUGGER" == "lldb" ]; then
+                     exec lldb /azerothcore/env/dist/bin/worldserver;
+                   elif [ "$$DEBUGGER" == "gdb" ]; then
+                     exec gdb -x /azerothcore/gdb.conf --batch /azerothcore/env/dist/bin/worldserver;
+                   else
+                     exec worldserver;
+                   fi'
+
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - seccomp=unconfined  # Disable seccomp to allow unrestricted system calls
+    # platform: linux/amd64
+    volumes:
+      - ${DOCKER_VOL_DATA:-./env/dist/data/}:/azerothcore/env/dist/data/:ro
+      - ${DOCKER_VOL_MODULES:-./modules}:/azerothcore/modules
+      - ${DOCKER_VOL_LUA_SCRIPTS:-./lua_scripts}:/azerothcore/scripts

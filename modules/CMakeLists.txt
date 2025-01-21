@@ -233,6 +233,7 @@ foreach(SOURCE_MODULE ${MODULES_MODULE_LIST})
     target_include_directories(${MODULE_SOURCE_PROJECT_NAME}
       PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/src/common/Logging
         ${PUBLIC_INCLUDES})
 
     set_target_properties(${MODULE_SOURCE_PROJECT_NAME}
