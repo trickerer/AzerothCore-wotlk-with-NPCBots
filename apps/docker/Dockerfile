@@ -1,13 +1,15 @@
-ARG UBUNTU_VERSION=22.04 # lts
-ARG TZ=Etc/UTC
+ARG UBUNTU_VERSION=22.04 # LTS
+ARG ARCH=arm64
+ARG TZ=Etc/America/New_York
 
-# This target lays out the general directory skeleton for AzerothCore,
-# This target isn't intended to be directly used
-FROM ubuntu:$UBUNTU_VERSION AS skeleton
+# Base image with specified architecture
+FROM --platform=linux/$ARCH ubuntu:$UBUNTU_VERSION AS skeleton
+# FROM ubuntu:$UBUNTU_VERSION AS skeleton
 
 ARG DOCKER=1
 ARG DEBIAN_FRONTEND=noninteractive
 
+ENV TZ=$TZ
 ENV AC_FORCE_CREATE_DB=1
 
 RUN mkdir -pv \
@@ -43,6 +45,7 @@ FROM skeleton AS build
 
 ARG CTOOLS_BUILD="all"
 ARG CTYPE="RelWithDebInfo"
+#ARG CTYPE="Release"
 ARG CCACHE_CPP2="true"
 ARG CSCRIPTPCH="OFF"
 ARG CSCRIPTS="static"
@@ -53,7 +56,7 @@ ARG CMAKE_EXTRA_OPTIONS=""
 ARG GIT_DISCOVERY_ACROSS_FILESYSTEM=1
 
 ARG CCACHE_DIR="/ccache"
-ARG CCACHE_MAXSIZE="1000MB"
+ARG CCACHE_MAXSIZE="1500MB"
 ARG CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime"
 ARG CCACHE_COMPRESS=""
 ARG CCACHE_COMPRESSLEVEL="9"
@@ -99,6 +102,9 @@ RUN --mount=type=cache,target=/ccache,sharing=locked \
        -DCMAKE_CXX_COMPILER_LAUNCHER="ccache"          \
        -DCMAKE_C_COMPILER_LAUNCHER="ccache"            \
        -DBoost_USE_STATIC_LIBS="ON"                    \
+       -DCMAKE_LINKER=lld                              \
+       -DCMAKE_CXX_LINKER=lld                          \
+       -DCMAKE_C_LINKER=lld                            \
     && cmake --build . --config "$CTYPE" -j $(($(nproc) + 1)) \
     && cmake --install . --config "$CTYPE"
 
@@ -115,11 +121,23 @@ ARG DOCKER_USER=acore
 ENV ACORE_COMPONENT=undefined
 
 # Install base dependencies for azerothcore
+# RUN apt-get update && \
+#     apt-get install -y --no-install-recommends \
+#       libmysqlclient21 libreadline8 \
+#       gettext-base default-mysql-client && \
+#     rm -rf /var/lib/apt/lists/*
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       libmysqlclient21 libreadline8 \
-      gettext-base default-mysql-client && \
+    gettext-base default-mysql-client \
+    lldb python3-lldb && \
     rm -rf /var/lib/apt/lists/*
+
+RUN chmod -R a+rX /usr/lib/llvm-14/lib/python3/dist-packages/lldb && \
+    chmod -R a+rX /usr/lib/llvm-14/lib/python3.10/dist-packages/lldb
+
+COPY apps/startup-scripts/gdb.conf /azerothcore/gdb.conf
 
 COPY --from=build /azerothcore/env/dist/etc/ /azerothcore/env/ref/etc
 
