@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "AzerothCore",
+            "includePath": [
+                "${workspaceFolder}/src/common/Logging/**",
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/deps",
+                "${workspaceFolder}/**",
+                "/opt/homebrew/include"
+            ],
+            "defines": [
+                "AZEROTHCORE",
+                "MOD_PRESENT_NPCBOTS"
+            ],
+            "cStandard": "c11",
+            "cppStandard": "c++20",
+            "intelliSenseMode": "macos-clang-arm64"
+        }
+    ],
+    "version": 4
+}

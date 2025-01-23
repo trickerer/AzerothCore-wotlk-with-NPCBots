@@ -118,5 +118,12 @@
     },
     "deno.enable": true,
     "deno.path": "deps/deno/bin/deno",
-    "deno.lint": true
+    "deno.lint": true,
+    "cSpell.words": [
+        "Azeroth",
+        "botstat",
+        "Eluna",
+        "NPCBOTMETHODS",
+        "Unequip"
+    ]
 }
