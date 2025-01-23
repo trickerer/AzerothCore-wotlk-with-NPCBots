@@ -63,13 +63,30 @@ ARG CCACHE_COMPRESSLEVEL="9"
 ARG CCACHE_COMPILERCHECK="content"
 ARG CCACHE_LOGFILE=""
 
-RUN apt-get update                                                     \
-    && apt-get install -y --no-install-recommends                         \
-        build-essential ccache libtool cmake-data make cmake clang    \
-        git lsb-base curl unzip default-mysql-client openssl                  \
-        default-libmysqlclient-dev libboost-all-dev libssl-dev libmysql++-dev \
-        libreadline-dev zlib1g-dev libbz2-dev libncurses5-dev         \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ccache \
+    libtool \
+    cmake-data \
+    make \
+    cmake \
+    clang \
+    git \
+    lsb-base \
+    curl \
+    unzip \
+    default-mysql-client \
+    openssl \
+    libmysqlclient-dev \
+    libboost-all-dev \
+    libssl-dev \
+    libmysql++-dev \
+    libreadline-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    libncurses5-dev
+
+RUN rm -rf /var/lib/apt/lists/*
 
 COPY CMakeLists.txt /azerothcore/CMakeLists.txt
 COPY conf /azerothcore/conf
@@ -131,11 +148,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       libmysqlclient21 libreadline8 \
     gettext-base default-mysql-client \
-    rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 # Install conditional software based on the DEBUGGER argument
 RUN if [ "$DEBUGGER" = "lldb" ]; then \
-
         apt-get install -y --no-install-recommends lldb python3-lldb; \
         chmod -R a+rX /usr/lib/llvm-14/lib/python3/dist-packages/lldb && \
         chmod -R a+rX /usr/lib/llvm-14/lib/python3.10/dist-packages/lldb; \

@@ -7,7 +7,7 @@ services:
       retries: 3
 
   # mount the modules directory so that updates to sql scripts are updated without the need to rebuild
-  ac-data-import:
+  ac-db-import:
     volumes:
       - ${DOCKER_VOL_MODULES:-./modules}:/azerothcore/modules
 
