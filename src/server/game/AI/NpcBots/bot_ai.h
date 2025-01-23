@@ -8,6 +8,7 @@
 #include "GroupReference.h"
 //#include "ItemDefines.h"
 #include "Position.h"
+#include "bot_ai_eluna.h"
 
 #include <tuple>
 #include <unordered_set>
@@ -45,6 +46,7 @@ class SpellCastTargets;
 class Unit;
 class Vehicle;
 class WanderNode;
+class BotAIEluna;
 
 class bot_ai : public CreatureAI
 {
@@ -590,6 +592,8 @@ class bot_ai : public CreatureAI
         bool shouldEnterVehicle;
 
     private:
+        friend class BotAIEluna;
+
         void FindMaster();
         uint32 CalculateOwnershipCheckTime();
 
@@ -660,7 +664,7 @@ class bot_ai : public CreatureAI
 
         std::tuple<Unit*, Unit*> _getTargets(bool byspell, bool ranged, bool &reset) const;
         Unit* _getVehicleTarget(BotVehicleStrats strat) const;
-        void _listAuras(Player const* player, Unit const* unit) const;
+        std::string _listAuras(Player const* player, Unit const* unit, bool sendChat = true) const;
         bool _checkImmunities(Unit const* target, SpellInfo const* spellInfo) const;
         static float _getAttackDistance(float distance) { return distance*0.72f; }
         void _extendAttackRange(float& dist) const;

@@ -2059,11 +2059,11 @@ bool bot_ai::CanRemoveReflectSpells(Unit const* target, uint32 spellId) const
 }
 //LIST AURAS
 // Debug: Returns bot's info to called player
-void bot_ai::_listAuras(Player const* player, Unit const* unit) const
+std::string bot_ai::_listAuras(Player const* player, Unit const* unit, bool sendChat) const
 {
     //if (player->GetSession()->GetSecurity() == SEC_PLAYER) return;
-    if (!player->IsGameMaster() && (IAmFree() || !IsInBotParty(player))) return;
-    if (!IsInBotParty(unit)) return;
+    if (!player->IsGameMaster() && (IAmFree() || !IsInBotParty(player))) return "";
+    if (!IsInBotParty(unit)) return "";
     ChatHandler ch(player->GetSession());
     std::ostringstream botstring;
     botstring.setf(std::ios_base::fixed);
@@ -2313,8 +2313,10 @@ void bot_ai::_listAuras(Player const* player, Unit const* unit) const
         //        ch.PSendSysMessage("Item mod {}: bonus = {}", i, val);
         //}
     }
+    if (sendChat)
+        ch.SendSysMessage(botstring.str());
 
-    ch.SendSysMessage(botstring.str());
+    return botstring.str();
 }
 //SetStats
 // Health, Armor, Powers, Combat Ratings, and global update setup
