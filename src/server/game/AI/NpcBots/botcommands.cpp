@@ -633,7 +633,7 @@ public:
         {
             { "",           HandleNpcBotSpawnedCommand,             rbac::RBAC_PERM_COMMAND_NPCBOT_SPAWNED,            Console::Yes },
             { "free",       HandleNpcBotSpawnedFreeCommand,         rbac::RBAC_PERM_COMMAND_NPCBOT_SPAWNED,            Console::Yes },
-            { "map",        HandleNPCBotSpawnedMapCommand,          rbac::RBAC_PERM_COMMAND_NPCBOT_SPAWNED,            Console::Yes },
+            { "in",        HandleNPCBotSpawnedMapCommand,          rbac::RBAC_PERM_COMMAND_NPCBOT_SPAWNED,            Console::Yes },
             { "class",      HandleNPCBotSpawnedClassCommand,        rbac::RBAC_PERM_COMMAND_NPCBOT_SPAWNED,            Console::Yes },
             { "level",      HandleNPCBotSpawnedLevelCommand,        rbac::RBAC_PERM_COMMAND_NPCBOT_SPAWNED,            Console::Yes },
             { "stats",      HandleNpcBotSpawnedStatsCommand,        rbac::RBAC_PERM_COMMAND_NPCBOT_SPAWNED,            Console::Yes },
