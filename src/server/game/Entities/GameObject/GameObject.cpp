@@ -918,7 +918,8 @@ void GameObject::Update(uint32 diff)
                     return;
                 }
 
-                m_respawnTime = GameTime::GetGameTime().count() + m_respawnDelayTime;
+                uint32 dynamicRespawnDelay = GetMap()->ApplyDynamicModeRespawnScaling(this, m_respawnDelayTime);
+                m_respawnTime = GameTime::GetGameTime().count() + dynamicRespawnDelay;
 
                 // if option not set then object will be saved at grid unload
                 if (GetMap()->IsDungeon())
@@ -1779,7 +1780,7 @@ void GameObject::Use(Unit* user)
 
                             LOG_DEBUG("entities.gameobject", "Fishing check (skill: {} zone min skill: {} chance {} roll: {}", skill, zone_skill, chance, roll);
 
-                            if (sScriptMgr->OnUpdateFishingSkill(player, skill, zone_skill, chance, roll))
+                            if (sScriptMgr->OnPlayerUpdateFishingSkill(player, skill, zone_skill, chance, roll))
                             {
                                 player->UpdateFishingSkill();
                             }
@@ -2694,7 +2695,7 @@ void GameObject::EnableCollision(bool enable)
         GetMap()->InsertGameObjectModel(*m_model);*/
 
     uint32 phaseMask = 0;
-    if (enable && !DisableMgr::IsDisabledFor(DISABLE_TYPE_GO_LOS, GetEntry(), nullptr))
+    if (enable && !sDisableMgr->IsDisabledFor(DISABLE_TYPE_GO_LOS, GetEntry(), nullptr))
         phaseMask = GetPhaseMask();
 
     m_model->enable(phaseMask);
