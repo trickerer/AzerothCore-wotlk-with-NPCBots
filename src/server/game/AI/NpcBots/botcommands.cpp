@@ -3361,6 +3361,9 @@ public:
 
             if (id == BOT_ENTRY_MIRROR_IMAGE_BM)
                 continue;
+            //Blademaster disabled
+            if (botclass == BOT_CLASS_BM)
+                continue;
 
             NpcBotExtras const* _botExtras = BotDataMgr::SelectNpcBotExtras(id);
             if (!_botExtras || _botExtras->bclass != botclass)
@@ -4109,13 +4112,16 @@ public:
             ss << "No free bots found!";
         else
         {
+            ss << '\n' << "Found " << uint32(free_bots.size()) << " free bots:";
         
-            // Add "in location" from the args 
-            // .npcbot list spawned stats in dun morogh
-            
-            
-            ss << "Found " << uint32(free_bots.size()) << " free bots:";
-            
+            std::string tmpArea = std::string(cCharLevel);
+            std::string strArea;            
+            if (tmpArea.size() >= 3 && tmpArea[0] == 'i' && tmpArea[1] == 'n' && tmpArea[2] == ' ') {
+                strArea = tmpArea.substr (3);
+                ss << '\n' << "Stats for area " << strArea;
+                std::transform(strArea.begin(), strArea.end(), strArea.begin(), ::toupper);                
+            }
+
             for (Creature const* bot : free_bots)
             {
                 uint32 bot_level = uint32(bot->GetLevel());
@@ -4125,22 +4131,26 @@ public:
 
                 AreaTableEntry const* zone = sAreaTableStore.LookupEntry(bot->GetBotAI()->GetLastZoneId() ? bot->GetBotAI()->GetLastZoneId() : bot->GetZoneId());
                 std::string zone_name = zone ? zone->area_name[handler->GetSession() ? handler->GetSessionDbLocaleIndex() : 0] : "Unknown";
+                std::string capZone_name = zone_name;
+                std::transform(capZone_name.begin(), capZone_name.end(), capZone_name.begin(), ::toupper);
 
-                // find and increase class counter
-                auto it = std::find (classArray.begin(), classArray.end(), bot_class_str);
-                if (it != classArray.end()) 
-                    countClassArray [std::distance(classArray.begin(), it)]++;
-                
-                // find and increase level counter
-                countLevelArray[(int)(bot_level/10)]++;
+                if (strArea.empty() || strArea == capZone_name) {
+                    // find and increase class counter
+                    auto it = std::find (classArray.begin(), classArray.end(), bot_class_str);
+                    if (it != classArray.end()) 
+                        countClassArray [std::distance(classArray.begin(), it)]++;
+                    
+                    // find and increase level counter
+                    countLevelArray[(int)(bot_level/10)]++;
+                }
             }
             for (int i = 0; i < 10; i++)
-                ss << '\n' << " " << classArray[i] << " have " << countClassArray[i] << " units";
+                if (countClassArray[i] > 0)
+                    ss << '\n' << classArray[i] << " have " << countClassArray[i] << " units";
                 
-            ss << '\n' << '\n';
-            
             for (int i = 0; i < 8; i++)
-                ss << '\n' << "Levels [" << levelArray [i] << "-" << (levelArray [i] < 10 ? levelArray [i] + 8 : levelArray [i] == 70 ? levelArray [i] : levelArray [i] + 9 ) << "] have " << countLevelArray[i] << " units";
+                if (countLevelArray[i] > 0)
+                    ss << '\n' << "Levels [" << levelArray [i] << "-" << (levelArray [i] < 10 ? levelArray [i] + 8 : levelArray [i] == 70 ? levelArray [i] : levelArray [i] + 9 ) << "] have " << countLevelArray[i] << " units";
         };
      
         handler->SendSysMessage(ss.str());
