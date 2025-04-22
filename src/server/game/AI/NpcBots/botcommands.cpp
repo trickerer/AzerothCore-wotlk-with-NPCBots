@@ -3361,9 +3361,6 @@ public:
 
             if (id == BOT_ENTRY_MIRROR_IMAGE_BM)
                 continue;
-            //Blademaster disabled
-            if (botclass == BOT_CLASS_BM)
-                continue;
 
             NpcBotExtras const* _botExtras = BotDataMgr::SelectNpcBotExtras(id);
             if (!_botExtras || _botExtras->bclass != botclass)
