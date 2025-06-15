@@ -46,6 +46,8 @@
 #include "TemporarySummon.h"
 #include "Transport.h"
 #include "World.h"
+// Added for groups
+#include "Player.h"
 /*
 NpcBot System by Trickerer (https://github.com/trickerer/Trinity-Bots; onlysuffering@gmail.com)
 Version 5.2.77a
@@ -10888,6 +10890,9 @@ bool bot_ai::OnGossipSelect(Player* player, Creature* creature/* == me*/, uint32
             {
                 case 1: //single bot
                     player->GetBotMgr()->AddBotToGroup(me);
+                    // Added for groups
+					if (Group* grp = player->GetGroup())
+						grp->SendUpdate();
                     break;
                 case 2: //all bots
                 {
@@ -10898,6 +10903,9 @@ bool bot_ai::OnGossipSelect(Player* player, Creature* creature/* == me*/, uint32
                             continue;
                         player->GetBotMgr()->AddBotToGroup(citr->second);
                     }
+                    // Added for groups
+					if (Group* grp = player->GetGroup())
+						grp->SendUpdate();
                     break;
                 }
             }
@@ -10906,6 +10914,9 @@ bool bot_ai::OnGossipSelect(Player* player, Creature* creature/* == me*/, uint32
         case GOSSIP_SENDER_LEAVE_GROUP:
         {
             player->GetBotMgr()->RemoveBotFromGroup(me);
+            // Added for groups
+			if (Group* grp = player->GetGroup())
+               grp->SendUpdate();
             break;
         }
         case GOSSIP_SENDER_HOLDPOSITION:
