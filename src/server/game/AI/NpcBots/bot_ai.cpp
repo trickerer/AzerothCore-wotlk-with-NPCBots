@@ -10608,6 +10608,8 @@ bool bot_ai::OnGossipSelect(Player* player, Creature* creature/* == me*/, uint32
                     SpellCastTargets targets;
                     targets.SetUnitTarget(me);
                     _castBotItemUseSpell(item, targets);
+                    // Delete pot from players inventory
+                    player->DestroyItemCount(item->GetEntry(), 1, true);
                 }
             }
 
