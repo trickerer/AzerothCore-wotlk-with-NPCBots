@@ -49,6 +49,13 @@
 #include "WorldPacket.h"
 #include "WorldSessionMgr.h"
 
+//npcbot
+#include "bot_ai.h"
+#include "botdatamgr.h"
+#include "botmgr.h"
+#include "bpet_ai.h"
+//end npcbot
+
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
 //  however, for some reasons removing it would cause a damn linking issue
 //  there is probably some underlying problem with imports which should properly addressed
@@ -58,13 +65,6 @@
 CreatureMovementData::CreatureMovementData() : Ground(CreatureGroundMovementType::Run), Flight(CreatureFlightMovementType::None),
                                                Swim(true), Rooted(false), Chase(CreatureChaseMovementType::Run),
                                                Random(CreatureRandomMovementType::Walk), InteractionPauseTimer(sWorld->getIntConfig(CONFIG_CREATURE_STOP_FOR_PLAYER)) {}
-
-//npcbot
-#include "bot_ai.h"
-#include "botdatamgr.h"
-#include "botmgr.h"
-#include "bpet_ai.h"
-//end npcbot
 
 std::string CreatureMovementData::ToString() const
 {
@@ -303,7 +303,6 @@ Creature::Creature(bool isWorldObject): Unit(isWorldObject), MovableMapObject(),
 
     ResetLootMode(); // restore default loot mode
     TriggerJustRespawned = false;
-    m_isTempWorldObject = false;
     _focusSpell = nullptr;
 
     m_respawnedTime = time_t(0);
@@ -848,9 +847,7 @@ void Creature::Update(uint32 diff)
                     m_moveBackwardsMovementTime = urand(MOVE_BACKWARDS_CHECK_INTERVAL, MOVE_BACKWARDS_CHECK_INTERVAL * 3);
                 }
                 else
-                {
                     m_moveBackwardsMovementTime -= diff;
-                }
 
                 // Circling the target
                 if (diff >= m_moveCircleMovementTime)
@@ -859,9 +856,17 @@ void Creature::Update(uint32 diff)
                     m_moveCircleMovementTime = urand(MOVE_CIRCLE_CHECK_INTERVAL, MOVE_CIRCLE_CHECK_INTERVAL * 2);
                 }
                 else
-                {
                     m_moveCircleMovementTime -= diff;
+
+                // Periodically check if able to move, if not, extend leash timer
+                if (diff >= m_extendLeashTime)
+                {
+                    if (HasUnitState(UNIT_STATE_LOST_CONTROL))
+                        UpdateLeashExtensionTime();
+                    m_extendLeashTime = EXTEND_LEASH_CHECK_INTERVAL;
                 }
+                else
+                    m_extendLeashTime -= diff;
             }
 
             // Call for assistance if not disabled
@@ -2842,14 +2847,13 @@ bool Creature::CanCreatureAttack(Unit const* victim, bool skipDistCheck) const
     if (skipDistCheck)
         return true;
 
-    float dist = sWorld->getFloatConfig(CONFIG_CREATURE_LEASH_RADIUS);
-
-    if (GetCharmerOrOwner())
+    if (Unit* unit = GetCharmerOrOwner())
     {
-        dist = std::min<float>(GetMap()->GetVisibilityRange() + GetObjectSize() * 2, 150.0f);
-        return IsWithinDist(victim, dist);
+        float visibilityDist = std::min<float>(GetMap()->GetVisibilityRange() + GetObjectSize() * 2, DEFAULT_VISIBILITY_DISTANCE);
+        return victim->IsWithinDist(unit, visibilityDist);
     }
 
+    float dist = sWorld->getFloatConfig(CONFIG_CREATURE_LEASH_RADIUS);
     if (!dist)
         return true;
 
@@ -2930,11 +2934,7 @@ bool Creature::LoadCreaturesAddon(bool reload)
 
     //Load Path
     if (cainfo->path_id != 0)
-    {
-        if (sWorld->getBoolConfig(CONFIG_SET_ALL_CREATURES_WITH_WAYPOINT_MOVEMENT_ACTIVE))
-            setActive(true);
         m_path_id = cainfo->path_id;
-    }
 
     if (!cainfo->auras.empty())
     {
@@ -4114,6 +4114,33 @@ std::string Creature::GetDebugInfo() const
         << "AIName: " << GetAIName() << " ScriptName: " << GetScriptName()
         << " WaypointPath: " << GetWaypointPath() << " SpawnId: " << GetSpawnId();
     return sstr.str();
+}
+
+// Note: This is called in a tight (heavy) loop, is it critical that all checks are FAST and are hopefully only simple conditionals.
+bool Creature::IsUpdateNeeded()
+{
+    if (WorldObject::IsUpdateNeeded())
+        return true;
+
+    if (GetMap()->isCellMarked(GetCurrentCell().GetCellCoord().GetId()))
+        return true;
+
+    if (IsInCombat())
+        return true;
+
+    if (IsVisibilityOverridden())
+        return true;
+
+    if (ToTempSummon())
+        return true;
+
+    if (GetMotionMaster()->HasMovementGeneratorType(WAYPOINT_MOTION_TYPE))
+        return true;
+
+    if (HasUnitState(UNIT_STATE_EVADE))
+        return true;
+
+    return false;
 }
 
 //NPCBOT
