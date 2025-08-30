@@ -53,6 +53,7 @@
 #include "Player.h"
 #include "ReputationMgr.h"
 #include "ScriptMgr.h"
+#include "SmartAI.h"
 #include "Spell.h"
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
@@ -218,7 +219,7 @@ SpellInfo const* ProcEventInfo::GetSpellInfo() const
 #ifdef _MSC_VER
 #pragma warning(disable:4355)
 #endif
-Unit::Unit(bool isWorldObject) : WorldObject(isWorldObject),
+Unit::Unit() : WorldObject(),
     m_movedByPlayer(nullptr),
     m_lastSanctuaryTime(0),
     IsAIEnabled(false),
@@ -4420,8 +4421,8 @@ void Unit::InterruptSpell(CurrentSpellTypes spellType, bool withDelayed, bool wi
     //LOG_DEBUG("entities.unit", "Interrupt spell for unit {}.", GetEntry());
     Spell* spell = m_currentSpells[spellType];
     if (spell
-            && (withDelayed || spell->getState() != SPELL_STATE_DELAYED)
-            && (withInstant || spell->GetCastTime() > 0 || spell->getState() == SPELL_STATE_CASTING)) // xinef: or spell is in casting state (channeled spells only)
+        && (withDelayed || spell->getState() != SPELL_STATE_DELAYED)
+        && (withInstant || spell->GetCastTime() > 0 || spell->getState() == SPELL_STATE_CASTING)) // xinef: or spell is in casting state (channeled spells only)
     {
         // for example, do not let self-stun aura interrupt itself
         if (!spell->IsInterruptable())
@@ -4443,6 +4444,15 @@ void Unit::InterruptSpell(CurrentSpellTypes spellType, bool withDelayed, bool wi
         {
             m_currentSpells[spellType] = nullptr;
             spell->SetReferencedFromCurrent(false);
+        }
+
+        // SAI creatures only
+        // Start chasing victim if they are spell casters (at least one SMC spell) if interrupted/silenced.
+        if (IsCreature())
+        {
+            if (SmartAI* ai = dynamic_cast<SmartAI*>(ToCreature()->AI()))
+                if (ai->CanChaseOnInterrupt())
+                    ai->SetCombatMove(true);
         }
     }
 }
@@ -18217,7 +18227,7 @@ Unit* Unit::SelectNearbyTarget(Unit* exclude, float dist) const
     std::list<Unit*> targets;
     Acore::AnyUnfriendlyUnitInObjectRangeCheck u_check(this, this, dist);
     Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(this, targets, u_check);
-    Cell::VisitAllObjects(this, searcher, dist);
+    Cell::VisitObjects(this, searcher, dist);
 
     // remove current target
     if (GetVictim())
@@ -18252,7 +18262,7 @@ Unit* Unit::SelectNearbyNoTotemTarget(Unit* exclude, float dist) const
     std::list<Unit*> targets;
     Acore::AnyUnfriendlyNoTotemUnitInObjectRangeCheck u_check(this, this, dist);
     Acore::UnitListSearcher<Acore::AnyUnfriendlyNoTotemUnitInObjectRangeCheck> searcher(this, targets, u_check);
-    Cell::VisitAllObjects(this, searcher, dist);
+    Cell::VisitObjects(this, searcher, dist);
 
     // remove current target
     if (GetVictim())
@@ -18514,7 +18524,7 @@ void Unit::SetContestedPvP(Player* attackedPlayer, bool lookForNearContestedGuar
         std::list<Unit*> targets;
         Acore::NearestVisibleDetectableContestedGuardUnitCheck u_check(this);
         Acore::UnitListSearcher<Acore::NearestVisibleDetectableContestedGuardUnitCheck> searcher(this, targets, u_check);
-        Cell::VisitAllObjects(this, searcher, MAX_AGGRO_RADIUS);
+        Cell::VisitObjects(this, searcher, MAX_AGGRO_RADIUS);
 
         // return if there are no contested guards found
         if (!targets.size())
@@ -20531,7 +20541,7 @@ void Unit::UpdateObjectVisibility(bool forced, bool /*fromUpdate*/)
         WorldObject::UpdateObjectVisibility(true);
         Acore::AIRelocationNotifier notifier(*this);
         float radius = 60.0f;
-        Cell::VisitAllObjects(this, notifier, radius);
+        Cell::VisitObjects(this, notifier, radius);
     }
 }
 
@@ -21781,10 +21791,10 @@ void Unit::ExecuteDelayedUnitRelocationEvent()
                 }
 
                 Acore::PlayerRelocationNotifier relocateNoLarge(*player, false); // visit only objects which are not large; default distance
-                Cell::VisitAllObjects(viewPoint, relocateNoLarge, player->GetSightRange() + VISIBILITY_INC_FOR_GOBJECTS);
+                Cell::VisitObjects(viewPoint, relocateNoLarge, player->GetSightRange() + VISIBILITY_INC_FOR_GOBJECTS);
                 relocateNoLarge.SendToSelf();
                 Acore::PlayerRelocationNotifier relocateLarge(*player, true);    // visit only large objects; maximum distance
-                Cell::VisitAllObjects(viewPoint, relocateLarge, MAX_VISIBILITY_DISTANCE);
+                Cell::VisitObjects(viewPoint, relocateLarge, MAX_VISIBILITY_DISTANCE);
                 relocateLarge.SendToSelf();
             }
 
@@ -21820,13 +21830,13 @@ void Unit::ExecuteDelayedUnitRelocationEvent()
         GetMap()->LoadGridsInRange(*player, MAX_VISIBILITY_DISTANCE);
 
         Acore::PlayerRelocationNotifier relocateNoLarge(*player, false); // visit only objects which are not large; default distance
-        Cell::VisitAllObjects(viewPoint, relocateNoLarge, player->GetSightRange() + VISIBILITY_INC_FOR_GOBJECTS);
+        Cell::VisitObjects(viewPoint, relocateNoLarge, player->GetSightRange() + VISIBILITY_INC_FOR_GOBJECTS);
         relocateNoLarge.SendToSelf();
 
         if (!player->GetFarSightDistance())
         {
             Acore::PlayerRelocationNotifier relocateLarge(*player, true); // visit only large objects; maximum distance
-            Cell::VisitAllObjects(viewPoint, relocateLarge, MAX_VISIBILITY_DISTANCE);
+            Cell::VisitObjects(viewPoint, relocateLarge, MAX_VISIBILITY_DISTANCE);
             relocateLarge.SendToSelf();
         }
 
@@ -21848,7 +21858,7 @@ void Unit::ExecuteDelayedUnitRelocationEvent()
         unit->m_last_notify_position.Relocate(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ());
 
         Acore::CreatureRelocationNotifier relocate(*unit);
-        Cell::VisitAllObjects(unit, relocate, unit->GetVisibilityRange() + VISIBILITY_COMPENSATION);
+        Cell::VisitObjects(unit, relocate, unit->GetVisibilityRange() + VISIBILITY_COMPENSATION);
 
         this->AddToNotify(NOTIFY_AI_RELOCATION);
     }
@@ -21862,7 +21872,7 @@ void Unit::ExecuteDelayedUnitAINotifyEvent()
 
     Acore::AIRelocationNotifier notifier(*this);
     float radius = 60.0f;
-    Cell::VisitAllObjects(this, notifier, radius);
+    Cell::VisitObjects(this, notifier, radius);
 }
 
 void Unit::SetInFront(WorldObject const* target)
@@ -22522,7 +22532,7 @@ void Unit::Talk(std::string_view text, ChatMsg msgType, Language language, float
     Acore::CustomChatTextBuilder builder(this, msgType, text, language, target);
     Acore::LocalizedPacketDo<Acore::CustomChatTextBuilder> localizer(builder);
     Acore::PlayerDistWorker<Acore::LocalizedPacketDo<Acore::CustomChatTextBuilder> > worker(this, textRange, localizer);
-    Cell::VisitWorldObjects(this, worker, textRange);
+    Cell::VisitObjects(this, worker, textRange);
 }
 
 void Unit::Say(std::string_view text, Language language, WorldObject const* target /*= nullptr*/)
@@ -22580,7 +22590,7 @@ void Unit::Talk(uint32 textId, ChatMsg msgType, float textRange, WorldObject con
     Acore::BroadcastTextBuilder builder(this, msgType, textId, getGender(), target);
     Acore::LocalizedPacketDo<Acore::BroadcastTextBuilder> localizer(builder);
     Acore::PlayerDistWorker<Acore::LocalizedPacketDo<Acore::BroadcastTextBuilder> > worker(this, textRange, localizer);
-    Cell::VisitWorldObjects(this, worker, textRange);
+    Cell::VisitObjects(this, worker, textRange);
 }
 
 void Unit::Say(uint32 textId, WorldObject const* target /*= nullptr*/)
