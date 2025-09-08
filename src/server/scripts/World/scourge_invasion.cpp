@@ -92,6 +92,7 @@ struct npc_herald_of_the_lich_king : public ScriptedAI
             Talk(HERALD_OF_THE_LICH_KING_SAY_ATTACK_END);
             ChangeZoneEventStatus(false);
             UpdateWeather(false);
+            me->DespawnOrUnsummon();
         }
     }
 
@@ -519,7 +520,8 @@ struct npc_necrotic_shard : public ScriptedAI
                 // Buff Players.
                 DoCastSelf(SPELL_SOUL_REVIVAL, true);
                 // Sending the Death Bolt.
-                DoCastAOE(SPELL_COMMUNIQUE_CAMP_TO_RELAY_DEATH, true);
+                if (Creature* relay = GetClosestCreatureWithEntry(me, NPC_NECROPOLIS_RELAY, 200.0f))
+                    me->CastSpell(relay, SPELL_COMMUNIQUE_CAMP_TO_RELAY_DEATH, true);
                 DespawnCultists(); // Despawn remaining Cultists (should never happen).
                 DespawnEventDoodads();
                 sWorldState->Save(SAVE_ID_SCOURGE_INVASION);
