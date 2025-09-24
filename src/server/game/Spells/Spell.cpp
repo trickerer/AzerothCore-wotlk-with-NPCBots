@@ -4215,6 +4215,11 @@ void Spell::_cast(bool skipCheck)
     sScriptMgr->OnSpellCast(this, m_caster, m_spellInfo, skipCheck);
 
     SetExecutedCurrently(false);
+
+    // Call CreatureAI hook OnSpellCastFinished
+    if (Creature* caster = m_originalCaster->ToCreature())
+        if (caster->IsAIEnabled)
+            caster->AI()->OnSpellCastFinished(GetSpellInfo(), SPELL_FINISHED_SUCCESSFUL_CAST);
 }
 
 void Spell::handle_immediate()
@@ -4566,6 +4571,11 @@ void Spell::update(uint32 difftime)
                     SendChannelUpdate(0);
 
                     finish();
+
+                    // We call the hook here instead of in Spell::finish because we only want to call it for completed channeling. Everything else is handled by interrupts
+                    if (Creature* creatureCaster = m_caster->ToCreature())
+                        if (creatureCaster->IsAIEnabled)
+                            creatureCaster->AI()->OnSpellCastFinished(m_spellInfo, SPELL_FINISHED_CHANNELING_COMPLETE);
 
                     //npcbot: signal channel finish to botmgr
                     if (m_caster->IsNPCBot())
