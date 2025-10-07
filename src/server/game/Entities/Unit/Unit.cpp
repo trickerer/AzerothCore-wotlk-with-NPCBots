@@ -259,7 +259,7 @@ Unit::Unit() : WorldObject(),
     m_modAttackSpeedPct[OFF_ATTACK] = 1.0f;
     m_modAttackSpeedPct[RANGED_ATTACK] = 1.0f;
 
-    m_canDualWield = false;
+    _dualWieldMode = DualWieldMode::AUTO;
 
     m_rootTimes = 0;
 
@@ -1428,6 +1428,11 @@ SpellCastResult Unit::CastCustomSpell(uint32 spellId, CustomSpellValues const& v
         return SPELL_FAILED_SPELL_UNAVAILABLE;
     }
 
+    return CastCustomSpell(spellInfo, value, victim, triggerFlags, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult Unit::CastCustomSpell(SpellInfo const* spellInfo, CustomSpellValues const& value, Unit* victim, TriggerCastFlags triggerFlags, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
     SpellCastTargets targets;
     targets.SetUnitTarget(victim);
 
@@ -4444,15 +4449,6 @@ void Unit::InterruptSpell(CurrentSpellTypes spellType, bool withDelayed, bool wi
         {
             m_currentSpells[spellType] = nullptr;
             spell->SetReferencedFromCurrent(false);
-        }
-
-        // SAI creatures only
-        // Start chasing victim if they are spell casters (at least one SMC spell) if interrupted/silenced.
-        if (IsCreature())
-        {
-            if (SmartAI* ai = dynamic_cast<SmartAI*>(ToCreature()->AI()))
-                if (ai->CanChaseOnInterrupt())
-                    ai->SetCombatMove(true);
         }
 
         if (IsCreature() && IsAIEnabled)
