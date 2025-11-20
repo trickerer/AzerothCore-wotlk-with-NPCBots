@@ -24,6 +24,7 @@
 #include "Chat.h"
 #include "DatabaseEnv.h"
 #include "DBCStores.h"
+#include "AreaDefines.h"
 #include "GameEventMgr.h"
 #include "GameGraveyard.h"
 #include "GameObjectAI.h"
@@ -6037,7 +6038,28 @@ uint32 bot_ai::_selectMountSpell() const
     {
         using MountArray = std::array<uint32, NUM_MOUNTS_PER_SPEED>;
 
-        bool can_fly = !IAmFree() ? master->CanFly() : false; //(!instt && me->GetMap()->GetEntry()->addon > 0);
+        // Proper flying capability check based on zone/map and Cold Weather Flying
+        bool can_fly = false;
+        if (!instt) // Only allow flying in non-instanced maps (except BG/Arena which are handled above)
+        {
+            uint32 virtualMap = GetVirtualMapForMapAndZone(me->GetMapId(), me->GetZoneId());
+            if (virtualMap == MAP_OUTLAND)
+            {
+                // Outland: Flying is always allowed
+                can_fly = true;
+            }
+            else if (virtualMap == MAP_NORTHREND)
+            {
+                // Northrend: Requires Cold Weather Flying (spell 54197)
+                // Check master's spell if bot has owner, or assume bots have it at appropriate level
+                if (!IAmFree())
+                    can_fly = master->HasSpell(54197);
+                else
+                    can_fly = me->GetLevel() >= 68; // Cold Weather Flying is learned at 68
+            }
+            // Eastern Kingdoms and Kalimdor: No flying (vanilla continents)
+        }
+
         bool useSlowMount = can_fly ? (me->GetLevel() < 70 || maxMountSpeed < 220) : (me->GetLevel() < minLevel100 || maxMountSpeed < 80);
 
         if (!can_fly)
@@ -6110,8 +6132,9 @@ uint32 bot_ai::_selectMountSpell() const
         }
         else //if (can_fly)
         {
+            // Druid Flight Form: 33943 (150% speed), Swift Flight Form: 40120 (280% speed)
             if (GetBotClass() == BOT_CLASS_DRUID && GetSpell(33943))
-                myMountSpellId = useSlowMount ? 33943 : GetSpell(33943);
+                myMountSpellId = useSlowMount ? 33943 : (GetSpell(40120) ? 40120 : 33943);
             else
             {
                 static const MountArray MOUNTS_150_ALLIANCE = { BOT_MOUNT_FLY_ALLIANCE_150_1, BOT_MOUNT_FLY_ALLIANCE_150_2, BOT_MOUNT_FLY_ALLIANCE_150_3 };
@@ -7662,8 +7685,9 @@ void bot_ai::OnSpellHit(Unit* caster, SpellInfo const* spell)
         if (auraname == SPELL_AURA_MOUNTED || (!spell->HasAura(SPELL_AURA_MOUNTED) && auraname == SPELL_AURA_MOD_INCREASE_FLIGHT_SPEED))
         {
             //BOT_LOG_ERROR("entities.unit", "OnSpellHit: mount on %s", me->GetName().c_str());
-            if (master->HasAuraType(SPELL_AURA_MOD_INCREASE_FLIGHT_SPEED) ||
-                master->HasAuraType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED))
+            // Fixed: Check if the SPELL itself is a flying mount, not if master is flying
+            if (spell->HasAura(SPELL_AURA_MOD_INCREASE_FLIGHT_SPEED) ||
+                spell->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED))
             {
                 //BOT_LOG_ERROR("entities.unit", "OnSpellHit: modding flight speed");
                 UnsummonAll(false);

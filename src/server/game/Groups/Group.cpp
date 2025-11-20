@@ -1970,20 +1970,35 @@ void Group::SendUpdateToPlayer(ObjectGuid playerGUID, MemberSlot* slot)
 
     data << m_guid;
     data << uint32(m_counter++);                        // 3.3, value increases every time this packet gets sent
-    data << uint32(GetMembersCount() - 1);
+
+    //npcbot: Count only player members for client packet
+    // Creatures/bots remain in m_memberSlots for server-side functionality (XP, loot, buffs)
+    // but must not be sent to the client to prevent "party1 is not in your party" spam
+    uint32 clientMemberCount = 0;
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        if (citr->guid != slot->guid && citr->guid.IsPlayer())
+            ++clientMemberCount;
+    }
+    data << uint32(clientMemberCount);
+    //end npcbot
+
     for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
     {
         if (slot->guid == citr->guid)
             continue;
 
+        //npcbot: Skip creature/bot members when sending to client
+        // Client cannot handle creature GUIDs in party and will spam error messages
+        // Bots remain in m_memberSlots for all server-side group functionality
+        if (citr->guid.IsCreature())
+            continue;
+        //end npcbot
+
         Player* member = ObjectAccessor::FindConnectedPlayer(citr->guid);
 
         uint8 onlineState = (member && !member->GetSession()->PlayerLogout()) ? MEMBER_STATUS_ONLINE : MEMBER_STATUS_OFFLINE;
         onlineState = onlineState | ((isBGGroup() || isBFGroup()) ? MEMBER_STATUS_PVP : 0);
-
-        //npcbot: bots are always online
-        onlineState |= citr->guid.IsCreature() ? 1 : 0;
-        //end npcbot
 
         data << citr->name;
         data << citr->guid;                             // guid
