@@ -187,8 +187,8 @@ public:
     void SetLevels(std::pair<uint8, uint8> levels) { std::tie(_minLevel, _maxLevel) = levels; }
     inline void SetLevels(uint8 minLevel, uint8 maxLevel) { SetLevels(std::pair{ minLevel, maxLevel }); }
 
-    void SetWaitTime(std::pair<float, float> waitTime) { std::tie(_minWaitTime, _maxWaitTime) = waitTime; }
-    inline void SetWaitTime(float minWaitTime, float maxWaitTime) { SetWaitTime(std::pair{ minWaitTime, maxWaitTime }); }
+    void SetWaitTime(std::pair<uint16, uint16> waitTime) { std::tie(_minWaitTime, _maxWaitTime) = waitTime; }
+    inline void SetWaitTime(uint16 minWaitTime, uint16 maxWaitTime) { SetWaitTime(std::pair{ minWaitTime, maxWaitTime }); }
 
     void SetProximity(float proximity) { _proximity = proximity; }
 
@@ -209,7 +209,7 @@ public:
     uint32 GetAreaId() const { return _areaId; }
     std::string const& GetName() const { return _name; }
     std::pair<uint8, uint8> GetLevels() const { return { _minLevel, _maxLevel }; }
-    std::pair<uint8, uint8> GetWaitTime() const { return { _minWaitTime, _maxWaitTime }; }
+    std::pair<uint16, uint16> GetWaitTime() const { return { _minWaitTime, _maxWaitTime }; }
     float GetProximity() const { return _proximity; }
     uint32 GetFlags() const { return _flags; }
 
@@ -227,8 +227,8 @@ private:
     /*const*/ std::string _name;
     uint8 _minLevel;
     uint8 _maxLevel;
-    float _minWaitTime;
-    float _maxWaitTime;
+    uint16 _minWaitTime;
+    uint16 _maxWaitTime;
     float _proximity;
     uint32 _flags;
 
