@@ -1324,7 +1324,7 @@ void BotDataMgr::LoadWanderMap(bool reload, bool force_all_maps)
     BOT_LOG_INFO("server.loading", "Setting up wander map...");
 
     //                                             0  1     2 3 4 5 6      7      8        9        10    11   12
-    QueryResult wres = WorldDatabase.Query("SELECT id,mapid,x,y,z,o,zoneId,areaId,minlevel,maxlevel,flags,name,links FROM creature_template_npcbot_wander_nodes ORDER BY mapid,id");
+    QueryResult wres = WorldDatabase.Query("SELECT id,mapid,x,y,z,o,zoneId,areaId,minlevel,maxlevel,flags,name,links,minwaittime,maxwaittime,proximity FROM creature_template_npcbot_wander_nodes ORDER BY mapid,id");
     if (!wres)
     {
         BOT_LOG_FATAL("server.loading", "Failed to load wander points: table `creature_template_npcbot_wander_nodes` is empty!");
@@ -1364,6 +1364,9 @@ void BotDataMgr::LoadWanderMap(bool reload, bool force_all_maps)
         uint32 flags          = fields[++index].Get<uint32>();
         std::string name      = fields[++index].Get<std::string>();
         std::string_view lstr = fields[++index].Get<std::string_view>();
+        uint32 minwaittime    = fields[++index].Get<uint32>();
+        uint32 maxwaittime    = fields[++index].Get<uint32>();
+        float proximity       = fields[++index].Get<float>();
 
         WanderNode::nextWPId = std::max<uint32>(WanderNode::nextWPId, id);
 
@@ -1432,7 +1435,9 @@ void BotDataMgr::LoadWanderMap(bool reload, bool force_all_maps)
         WanderNode* wp = new WanderNode(id, mapId, x, y, z, o, zoneId, areaId, name);
         wp->SetLevels(minLevel, maxLevel);
         wp->SetFlags(BotWPFlags(flags));
-
+        wp->SetWaitTime(minwaittime, maxwaittime);
+        wp->SetProximity(proximity);
+        
         if (wp->HasFlag(BotWPFlags::BOTWP_FLAG_SPAWN) && !lstr.empty())
             all_spawn_nodes.push_back(wp);
 
