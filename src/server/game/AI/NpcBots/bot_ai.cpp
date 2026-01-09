@@ -1,4 +1,4 @@
-#include "Battleground.h"
+ode#include "Battleground.h"
 #include "BattlegroundAB.h"
 #include "BattlegroundAV.h"
 #include "BattlegroundEY.h"
@@ -19056,7 +19056,7 @@ void bot_ai::Evade()
                 {
                     homepos.Relocate(nextNode);
                     if (me->GetMap()->GetEntry()->IsContinent())
-                        evadeDelayTimer = urand(3000, 7000);
+                        evadeDelayTimer = urand(nextNode->GetWaitTime().first, nextNode->GetWaitTime().second);
                     else
                     {
                         if (_travel_node_cur->HasFlag(BotWPFlags::BOTWP_FLAG_OPTIONAL_PICKUP) && !IsCasting())
