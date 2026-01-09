@@ -19056,7 +19056,7 @@ void bot_ai::Evade()
                 {
                     homepos.Relocate(nextNode);
                     if (me->GetMap()->GetEntry()->IsContinent())
-                        evadeDelayTimer = urand(nextNode->GetWaitTime().first, nextNode->GetWaitTime().second);
+                        evadeDelayTimer = urand(_travel_node_cur->GetWaitTime().first, _travel_node_cur->GetWaitTime().second);
                     else
                     {
                         if (_travel_node_cur->HasFlag(BotWPFlags::BOTWP_FLAG_OPTIONAL_PICKUP) && !IsCasting())
