@@ -19054,7 +19054,19 @@ void bot_ai::Evade()
                 }
                 else
                 {
-                    homepos.Relocate(nextNode);
+                    float x = nextNode->GetPositionX();
+                    float y = nextNode->GetPositionY();
+                    float z = nextNode->GetPositionZ();
+                    float o = nextNode->GetOrientation();
+                    if (nextNode->GetProximity() > 0.5f) {
+                        float angle = frand(0.f, float(M_PI * 2.f));
+                        float dist = frand (0.f, nextNode->GetProximity() * 2.f);
+                        x = x + dist * std::cos(angle);
+                        y = y + dist * std::sin(angle);
+                        if (me->GetMap()) 
+                            z = me->GetMap()->GetHeight(me->GetPhaseMask(), x, y, z);
+                    }
+                    homepos.Relocate(x, y, z, o);
                     if (me->GetMap()->GetEntry()->IsContinent())
                         evadeDelayTimer = urand(_travel_node_cur->GetWaitTime().first, _travel_node_cur->GetWaitTime().second);
                     else
