@@ -19064,7 +19064,7 @@ void bot_ai::Evade()
                         x = x + dist * std::cos(angle);
                         y = y + dist * std::sin(angle);
                         if (me->GetMap()) 
-                            z = me->GetMap()->GetHeight(me->GetPhaseMask(), x, y, z);
+                            z = me->GetMap()->GetHeight(me->GetPhaseMask(), x, y, z + 2);
                     }
                     homepos.Relocate(x, y, z, o);
                     if (me->GetMap()->GetEntry()->IsContinent())
