@@ -11428,15 +11428,6 @@ bool bot_ai::OnGossipSelect(Player* player, Creature* creature/* == me*/, uint32
 
                     break;
                 }
-                case 10: // Show Waypoint Data
-                {
-                    close = false;
-                    ChatHandler ch(player->GetSession());
-                    
-                    ch.PSendSysMessage("{}: {}, {}, {}", _travel_node_cur->GetWPId(), _travel_node_cur->GetPositionX(), _travel_node_cur->GetPositionY(), _travel_node_cur->GetPositionZ());
-                    
-                    break;
-                }
                 default:
                     close = false;
                     break;
