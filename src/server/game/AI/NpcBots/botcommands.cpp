@@ -2125,16 +2125,16 @@ public:
         {
             if (targetIconFlags & (1u << i))
             {
-                LOG_INFO("module", "We have a matching flag {}", i);
+                //LOG_INFO("module", "We have a matching flag {}", i);
                 target_guid = group->GetTargetIcons()[i];
                 Unit* tank_target = target_guid ? ObjectAccessor::GetUnit(*owner, target_guid) : nullptr;
                 if (tank_target)
                 {
-                    LOG_INFO("module","Found a target with flag, is it ok to use {}", okToUseMask);
+                   //LOG_INFO("module","Found a target with flag, is it ok to use {}", okToUseMask);
                     if (okToUseMask)
                         return tank_target->GetGUID();
                     okToUseMask = lastMask == tank_target->GetGUID();
-                    LOG_INFO("module", "is lastMask same as current target? {}", okToUseMask);
+                    //LOG_INFO("module", "is lastMask same as current target? {}", okToUseMask);
                 }
             } 
         }
