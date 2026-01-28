@@ -2188,9 +2188,11 @@ public:
                         continue;
                     
                     haveValidTarget = true;
-                    bot_ai::BotOrder order(BOT_ORDER_PULL);
-                    order.params.pullParams.targetGuid = target_guid.GetRawValue();        
-                    ai->AddOrder(std::move(order));
+                    bot->GetMotionMaster()->Clear();
+                    bot->GetMotionMaster()->MoveChase(tank_target, 0.0f, 0.0f);
+                    ai->AttackStart(tank_target);
+                    bot->SetInCombatWith(tank_target);
+                    tank_target->SetInCombatWith(bot);
                 }
            }
         }
