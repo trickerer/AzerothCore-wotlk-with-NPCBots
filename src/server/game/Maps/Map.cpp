@@ -733,6 +733,36 @@ void Map::AfterPlayerUnlinkFromMap()
 template<class T>
 void Map::RemoveFromMap(T* obj, bool remove)
 {
+    //npcbot: tempfix for bots out of grid during remove from map
+    if constexpr (std::is_base_of_v<Creature, T>)
+    {
+        if (obj->IsNPCBot())
+        {
+            obj->getHostileRefMgr().deleteReferences(true);
+
+            obj->RemoveFromWorld();
+
+            if (obj->IsInGrid())
+                obj->RemoveFromGrid();
+            else
+            {
+                Player const* owner = obj->ToCreature()->GetBotOwner();
+                BOT_LOG_ERROR("npcbots", "Map::Remove<Bot>FromMap() bot {} id {} is in map id {} \"{}\" instanceId {} but not in grid!\nmaster: {}\nmaster map id {} \"{}\"",
+                    obj->GetName(), obj->GetEntry(), GetId(), GetMapName(), i_InstanceId, owner ? owner->GetGUID().ToString() : std::string{ "Unknown" },
+                    (owner && owner->IsInWorld()) ? owner->GetMap()->GetId() : 0u, (owner && owner->IsInWorld()) ? std::string(owner->GetMap()->GetMapName()) : std::string{"Unknown"});
+            }
+
+            obj->ResetMap();
+            RemoveObjectFromMapUpdateList(obj);
+
+            if (remove)
+                DeleteFromWorld(obj);
+
+            return;
+        }
+    }
+    //end npcbot
+
     obj->RemoveFromWorld();
 
     obj->RemoveFromGrid();
