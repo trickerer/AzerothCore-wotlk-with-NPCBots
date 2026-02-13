@@ -611,7 +611,6 @@ public:
 
         static ChatCommandTable npcbotOrderCommandTable =
         {
-            { "attack",     HandleNpcBotOrderAttackCommand,         rbac::RBAC_PERM_COMMAND_NPCBOT_ORDER_CAST,         Console::No  },
             { "cast",       HandleNpcBotOrderCastCommand,           rbac::RBAC_PERM_COMMAND_NPCBOT_ORDER_CAST,         Console::No  },
             { "pull",       HandleNpcBotOrderPullCommand,           rbac::RBAC_PERM_COMMAND_NPCBOT_ORDER_CAST,         Console::No  },
         };
@@ -2112,99 +2111,6 @@ public:
                 return false;
         }
 
-        return true;
-    }
-
-    static ObjectGuid FindNearbyTargetGuidByMask(Player* owner, ObjectGuid lastMask, uint32 targetIconFlags)
-    {
-        ObjectGuid target_guid = ObjectGuid::Empty;
-        Group* group = owner->GetGroup();
-        bool okToUseMask = lastMask.IsEmpty();
-
-        for (uint8 i = 0; i < 8; ++i)
-        {
-            if (targetIconFlags & (1u << i))
-            {
-                target_guid = group->GetTargetIcons()[i];
-                Unit* tank_target = target_guid ? ObjectAccessor::GetUnit(*owner, target_guid) : nullptr;
-                if (tank_target)
-                {
-                    if (okToUseMask)
-                        return tank_target->GetGUID();
-                    okToUseMask = lastMask == tank_target->GetGUID();
-                }
-            } 
-        }
-        return ObjectGuid::Empty;
-    }
- 
-    static bool HandleNpcBotOrderAttackCommand(ChatHandler* handler)
-    {
-        Player* owner = handler->GetSession()->GetPlayer();
-        BotMgr* botMgr = owner->GetBotMgr();
-        Group* group = owner->GetGroup();
-
-        if (!owner->HaveBot() || !botMgr || !group)
-        {
-            handler->SendSysMessage("No valid bots in party/raid");
-            handler->SendSysMessage("At least one bot has to be tank, and targets raid marked");
-            return true;
-        }
-
-        if (botMgr->IsPartyInCombat(false))
-        {
-            handler->SendSysMessage("Can't do that while in combat!");
-            return true;
-        }
-        
-        ObjectGuid tank_target_guid = ObjectGuid::Empty;
-        ObjectGuid offtank_target_guid = ObjectGuid::Empty;
-        ObjectGuid target_guid = ObjectGuid::Empty;
-        BotMap* botMap = botMgr->GetBotMap();
-        bool haveTank = false, haveValidTarget = false;
-
-        for (auto const& itr : *botMap)
-        {
-            Creature* bot = itr.second;
-            if (!bot)
-                continue;
-
-            bot_ai* ai = bot->GetBotAI();
-            if (!ai)
-                continue;
-                    
-            if (ai->HasRole(BOT_ROLE_TANK))
-            {
-                haveTank = true;
-                if (ai->IsOffTank())
-                    target_guid = offtank_target_guid = FindNearbyTargetGuidByMask(owner, offtank_target_guid, botMgr->GetOffTankTargetIconFlags());
-                else
-                    target_guid = tank_target_guid = FindNearbyTargetGuidByMask(owner, tank_target_guid, botMgr->GetTankTargetIconFlags());
-
-                if (target_guid)
-                {
-                    Unit* tank_target = target_guid ? ObjectAccessor::GetUnit(*owner, target_guid) : nullptr;
-                    if (!tank_target || !bot->FindMap() || tank_target->FindMap() != bot->FindMap() || !ai->CanAIAttack(tank_target))
-                        continue;
-                    
-                    haveValidTarget = true;
-                    bot->GetMotionMaster()->Clear();
-                    bot->GetMotionMaster()->MoveChase(tank_target, 0.0f, 0.0f);
-                    ai->AttackStart(tank_target);
-                    bot->SetInCombatWith(tank_target);
-                    tank_target->SetInCombatWith(bot);
-                }
-           }
-        }
-        
-        if (!haveTank || !haveValidTarget)
-        {
-            if (!haveTank)
-                handler->SendSysMessage("No valid bot with role tank/offtank in party/raid");
-            else if (!haveValidTarget)
-                handler->SendSysMessage("No valid targets marked with raid markers");
-            handler->SendSysMessage("At least one bot has to be tank, and targets raid marked");
-        }
         return true;
     }
 
