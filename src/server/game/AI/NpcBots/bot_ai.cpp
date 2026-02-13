@@ -19498,7 +19498,7 @@ WanderNode const* bot_ai::GetNextWanderNode(Position const* fromPos, uint8 lvl, 
         if (me->IsInWorld() && !me->GetMap()->IsBattlegroundOrArena())
         {
             WanderNode::DoForAllMapWPs(_travel_node_cur->GetMapId(), [&nlinks, lvl = lvl, fac = faction, pos = fromPos](WanderNode const* wp) {
-                if (pos->GetExactDist2d(wp) < MAX_WANDER_NODE_DISTANCE && IsWanderNodeAvailableForBotFaction(wp, fac, true) && node_viable(wp, lvl))
+                if (pos->GetExactDist2d(wp) < MAX_WANDER_NODE_DISTANCE && IsWanderNodeAvailableForBotFaction(wp, fac, true) && node_viable(wp, lvl) && !wp->HasFlag(BotWPFlags::BOTWP_FLAG_NOT_A_START_POINT))
                     nlinks.push_back(wp);
             });
             if (!nlinks.empty())
@@ -19510,7 +19510,7 @@ WanderNode const* bot_ai::GetNextWanderNode(Position const* fromPos, uint8 lvl, 
         float mindist = 50000.0f; // Anywhere
         WanderNode::DoForAllMapWPs(_travel_node_cur->GetMapId(), [&node_new, &mindist, lvl = lvl, fac = faction, pos = fromPos](WanderNode const* wp) {
             float dist = pos->GetExactDist2d(wp);
-            if (dist < mindist && IsWanderNodeAvailableForBotFaction(wp, fac, false) && node_viable(wp, lvl))
+            if (dist < mindist && IsWanderNodeAvailableForBotFaction(wp, fac, false) && node_viable(wp, lvl) && !wp->HasFlag(BotWPFlags::BOTWP_FLAG_NOT_A_START_POINT))
             {
                 mindist = dist;
                 node_new = wp;
@@ -19535,7 +19535,7 @@ WanderNode const* bot_ai::GetNextWanderNode(Position const* fromPos, uint8 lvl, 
 
     //Overleveled or died: no viable nodes in reach, find one for teleport
     WanderNode::DoForAllWPs([&nlinks, lvl = lvl, fac = faction](WanderNode const* wp) {
-        if (IsWanderNodeAvailableForBotFaction(wp, fac, true) && wp->HasFlag(BotWPFlags::BOTWP_FLAG_SPAWN) && node_viable(wp, lvl))
+        if (IsWanderNodeAvailableForBotFaction(wp, fac, true) && wp->HasFlag(BotWPFlags::BOTWP_FLAG_SPAWN) && node_viable(wp, lvl) && !wp->HasFlag(BotWPFlags::BOTWP_FLAG_NOT_A_START_POINT))
             nlinks.push_back(wp);
     });
 
