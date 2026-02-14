@@ -290,7 +290,6 @@ private:
     void SendNodeUpdate(uint8 node);
     void NodeOccupied(uint8 node);
     void NodeDeoccupied(uint8 node);
-    void ApplyPhaseMask();
 
     struct CapturePointInfo
     {

@@ -195,9 +195,8 @@ void BattlegroundAB::AddBot(Creature* bot)
 }
 //end npcbot
 
-void BattlegroundAB::RemovePlayer(Player* player)
+void BattlegroundAB::RemovePlayer(Player* /*player*/)
 {
-    player->SetPhaseMask(1, false);
 }
 
 void BattlegroundAB::HandleAreaTrigger(Player* player, uint32 trigger)
@@ -284,7 +283,6 @@ void BattlegroundAB::SendNodeUpdate(uint8 node)
 
 void BattlegroundAB::NodeOccupied(uint8 node)
 {
-    ApplyPhaseMask();
     AddSpiritGuide(node, BG_AB_SpiritGuidePos[node][0], BG_AB_SpiritGuidePos[node][1], BG_AB_SpiritGuidePos[node][2], BG_AB_SpiritGuidePos[node][3], _capturePointInfo[node]._ownerTeamId);
 
     ++_controlledPoints[_capturePointInfo[node]._ownerTeamId];
@@ -407,7 +405,6 @@ void BattlegroundAB::EventPlayerClickedOnFlag(Player* player, GameObject* gameOb
 
         _capturePointInfo[node]._state = static_cast<uint8>(BG_AB_NODE_STATE_ALLY_CONTESTED) + player->GetTeamId();
 
-        ApplyPhaseMask();
         _bgEvents.RescheduleEvent(BG_AB_EVENT_CAPTURE_STABLE + node, BG_AB_FLAG_CAPTURING_TIME);
         sound = player->GetTeamId() == TEAM_ALLIANCE ? BG_AB_SOUND_NODE_ASSAULTED_ALLIANCE : BG_AB_SOUND_NODE_ASSAULTED_HORDE;
 
@@ -512,7 +509,6 @@ void BattlegroundAB::EventBotClickedOnFlag(Creature* bot, GameObject* target_obj
 
         _capturePointInfo[node]._state = static_cast<uint8>(BG_AB_NODE_STATE_ALLY_CONTESTED) + teamId;
 
-        ApplyPhaseMask();
         _bgEvents.RescheduleEvent(BG_AB_EVENT_CAPTURE_STABLE + node, BG_AB_FLAG_CAPTURING_TIME);
         sound = teamId == TEAM_ALLIANCE ? BG_AB_SOUND_NODE_ASSAULTED_ALLIANCE : BG_AB_SOUND_NODE_ASSAULTED_HORDE;
 
@@ -769,20 +765,4 @@ bool BattlegroundAB::UpdatePlayerScore(Player* player, uint32 type, uint32 value
 bool BattlegroundAB::AllNodesConrolledByTeam(TeamId teamId) const
 {
     return _controlledPoints[teamId] == BG_AB_DYNAMIC_NODES_COUNT;
-}
-
-void BattlegroundAB::ApplyPhaseMask()
-{
-    uint32 phaseMask = 1;
-    for (uint32 i = BG_AB_NODE_STABLES; i < BG_AB_DYNAMIC_NODES_COUNT; ++i)
-        if (_capturePointInfo[i]._ownerTeamId != TEAM_NEUTRAL)
-            phaseMask |= 1 << (i * 2 + 1 + _capturePointInfo[i]._ownerTeamId);
-
-    const BattlegroundPlayerMap& bgPlayerMap = GetPlayers();
-
-    for (auto const& itr : bgPlayerMap)
-    {
-        itr.second->SetPhaseMask(phaseMask, false);
-        itr.second->UpdateObjectVisibility(true, false);
-    }
 }
