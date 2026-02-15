@@ -11404,12 +11404,14 @@ bool bot_ai::OnGossipSelect(Player* player, Creature* creature/* == me*/, uint32
                 case 7: // Show Waypoint Data
                 {
                     ChatHandler ch(player->GetSession());
-                    if (_travel_node_last && _travel_node_cur) {
+                    if (_travel_node_last && _travel_node_cur) 
+                    {
                         ch.PSendSysMessage("Waypoint node data:");
                         ch.PSendSysMessage("Current: name:{}, id:{}, x:{}, y:{}, z:{}, proximity:{}", _travel_node_last->GetName(), _travel_node_last->GetWPId(), _travel_node_last->GetPositionX(), _travel_node_last->GetPositionY(), _travel_node_last->GetPositionZ(), _travel_node_last->GetProximity());
                         ch.PSendSysMessage("Next: name:{}, id:{}, x:{}, y:{}, z:{}, proximity:{}", _travel_node_cur->GetName(), _travel_node_cur->GetWPId(), _travel_node_cur->GetPositionX(), _travel_node_cur->GetPositionY(), _travel_node_cur->GetPositionZ(), _travel_node_cur->GetProximity());
                         ch.PSendSysMessage("Actual: x:{}, y:{}, z:{}, distance:{}", me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), me->GetDistance(_travel_node_last->GetPosition()));
-                    } else 
+                    }
+                    else 
                         ch.PSendSysMessage("Waypoint data hasn't been created yet");
                     
                     break;
