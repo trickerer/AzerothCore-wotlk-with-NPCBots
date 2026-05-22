@@ -1,5 +1,5 @@
-#ifndef _BOTDUMP_H
-#define _BOTDUMP_H
+#ifndef BOTDUMP_H
+#define BOTDUMP_H
 
 #include "Define.h"
 
@@ -31,21 +31,19 @@ class BotStringTransaction;
 
 class NPCBotsDump
 {
-    public:
-        NPCBotsDump() {}
+public:
+    BotDataDumpResult Write(std::string const& file);
+    BotDataDumpResult Load(std::string const& file);
 
-        BotDataDumpResult Write(std::string const& file);
-        BotDataDumpResult Load(std::string const& file);
+private:
+    std::string GetDump();
+    BotDataVerificationResult VerifyWriteData(uint32 entry) const;
+    void AppendBotNPCBotData(BotStringTransaction* trans, uint32 entry) const;
+    void AppendBotNPCBotTransmogData(BotStringTransaction* trans, uint32 entry) const;
+    void AppendBotEquipsData(BotStringTransaction* trans, uint32 entry) const;
+    void AppendBotCreatureData(BotStringTransaction* trans, uint32 entry) const;
 
-    private:
-        bool GetDump(std::string& dump);
-        BotDataVerificationResult VerifyWriteData(uint32 entry) const;
-        void AppendBotNPCBotData(BotStringTransaction* trans, uint32 entry) const;
-        void AppendBotNPCBotTransmogData(BotStringTransaction* trans, uint32 entry) const;
-        void AppendBotEquipsData(BotStringTransaction* trans, uint32 entry) const;
-        void AppendBotCreatureData(BotStringTransaction* trans, uint32 entry) const;
-
-        BotDataDumpResult LoadDump(std::ifstream& input);
+    BotDataDumpResult LoadDump(std::ifstream& input);
 };
 
 #endif

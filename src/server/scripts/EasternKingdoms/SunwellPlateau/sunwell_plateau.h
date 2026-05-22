@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -24,24 +24,32 @@
 
 #define SWPScriptName "instance_sunwell_plateau"
 
-enum DataTypes
+enum BossIds
 {
     DATA_KALECGOS                           = 0,
-    DATA_MADRIGOSA                          = 1,
-    DATA_BRUTALLUS                          = 2,
-    DATA_FELMYST                            = 3,
-    DATA_FELMYST_DOORS                      = 4,
-    DATA_EREDAR_TWINS_INTRO                 = 5,
-    DATA_EREDAR_TWINS                       = 6,
-    DATA_MURU                               = 7,
-    DATA_KILJAEDEN                          = 8,
-    MAX_ENCOUNTERS                          = 9,
+    DATA_BRUTALLUS                          = 1,
+    DATA_FELMYST                            = 2,
+    DATA_FELMYST_DOORS                      = 3,
+    DATA_EREDAR_TWINS                       = 4,
+    DATA_MURU                               = 5,
+    DATA_KILJAEDEN                          = 6,
+    MAX_ENCOUNTERS
+};
 
-    // GameObject GUIDs
-    DATA_ORB_OF_THE_BLUE_DRAGONFLIGHT_1     = 10,
-    DATA_ORB_OF_THE_BLUE_DRAGONFLIGHT_2     = 11,
-    DATA_ORB_OF_THE_BLUE_DRAGONFLIGHT_3     = 12,
-    DATA_ORB_OF_THE_BLUE_DRAGONFLIGHT_4     = 13
+enum DataTypes
+{
+    DATA_SACROLASH                          = 7,
+    DATA_ALYTHESS                           = 8,
+    DATA_MADRIGOSA                          = 9,
+    DATA_SATHROVARR                         = 10,
+    DATA_KJ_CONTROLLER                      = 11,
+    DATA_ANVEENA                            = 12,
+    DATA_KALECGOS_KJ                        = 13,
+    DATA_ORB_OF_THE_BLUE_DRAGONFLIGHT_1     = 14,
+    DATA_ORB_OF_THE_BLUE_DRAGONFLIGHT_2     = 15,
+    DATA_ORB_OF_THE_BLUE_DRAGONFLIGHT_3     = 16,
+    DATA_ORB_OF_THE_BLUE_DRAGONFLIGHT_4     = 17,
+    DATA_ICEBARRIER                         = 18,
 };
 
 enum CreatureIds
@@ -96,7 +104,7 @@ enum GameObjectIds
 
 enum SpellIds
 {
-    SPELL_SUNWELL_RADIANCE                  = 45769,
+    SPELL_SUMMON_FELBLAZE                    = 45069 // Felblaze? Summons Felmyst
 };
 
 template <class AI, class T>
@@ -104,5 +112,7 @@ inline AI* GetSunwellPlateauAI(T* obj)
 {
     return GetInstanceAI<AI>(obj, SWPScriptName);
 }
+
+#define RegisterSunwellPlateauCreatureAI(ai_name) RegisterCreatureAIWithFactory(ai_name, GetSunwellPlateauAI)
 
 #endif // SUNWELL_PLATEAU_H

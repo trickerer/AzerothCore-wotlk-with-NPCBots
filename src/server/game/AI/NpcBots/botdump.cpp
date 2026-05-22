@@ -14,29 +14,36 @@
 
 #include "botdump.h"
 #include "botdatamgr.h"
+#include "botlogtraits.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
 #include "ObjectMgr.h"
+#include "QueryResult.h"
+#include "StringConvert.h"
 
 #include <sstream>
+
+static std::map<uint32, uint32> ItemReguidMap;
 
 class BotStringTransaction
 {
 public:
-    BotStringTransaction() : _buf() {}
+    using stream_type = std::ostringstream;
 
-    void Append(std::string const& sql)
+    template <typename S>
+    BotStringTransaction& Append(S&& sql)
     {
-        _buf += sql;
+        _buf <<  std::forward<S>(sql);
+        return *this;
     }
 
-    std::string const& GetBuffer() const
+    std::string_view GetBuffer() const
     {
-        return _buf;
+        return _buf.view();
     }
 
 private:
-    std::string _buf;
+    stream_type _buf;
 };
 
 enum ImportDataTableType : uint8
@@ -52,14 +59,14 @@ enum ImportDataTableType : uint8
 
 struct TableImportData
 {
-    std::string const name;
-    std::string const fieldsStr;
+    std::string_view name;
+    std::string_view fieldsStr;
     uint32 paramsCount;
     size_t guidOffsetBegin;
     size_t guidOffsetEnd;
 };
 
-TableImportData TableImportDatas[IMPORT_TABLES_COUNT] =
+static constexpr const TableImportData TableImportDatas[IMPORT_TABLES_COUNT] =
 {
     { "`characters_npcbot` ",
       "("
@@ -92,11 +99,11 @@ TableImportData TableImportDatas[IMPORT_TABLES_COUNT] =
       ") VALUES ", 11, 0, 0 }
 };
 
-ImportDataTableType GetImportDataTableType(std::string const& name)
+static ImportDataTableType GetImportDataTableType(std::string const& name)
 {
-    for (uint8 i = TABLE_TYPE_CHARACTERS_NPCBOT; i != IMPORT_TABLES_COUNT; ++i)
+    for (auto i : NPCBots::index_array<uint32, IMPORT_TABLES_COUNT>)
     {
-        //TC_LOG_ERROR("scripts", "import: GetImportDataTableType");
+        //BOT_LOG_ERROR("scripts", "import: GetImportDataTableType");
         if (!TableImportDatas[i].name.compare(name))
             return ImportDataTableType(i);
     }
@@ -104,97 +111,83 @@ ImportDataTableType GetImportDataTableType(std::string const& name)
     return IMPORT_TABLE_INVALID;
 }
 
-inline uint8 GetImportLineParamsCount(std::string const& line)
+static uint8 GetImportLineParamsCount(std::string const& line)
 {
     static std::string const ParamSeparator = "','";
     uint8 count = 0;
     size_t pos = line.find(ParamSeparator);
     while (pos != std::string::npos)
     {
-        //TC_LOG_ERROR("scripts", "import: GetImportLineParamsCount");
+        //BOT_LOG_ERROR("scripts", "import: GetImportLineParamsCount");
         ++count;
         pos = line.find(ParamSeparator, pos + 1);
     }
     return count + 1; //separators count is params count - 1
 }
 
-inline void FixNULLfields(std::string& line)
+static void FixNULLBotFields(std::string& line)
 {
     static std::string const NullString = "'NULL'";
     size_t pos = line.find(NullString);
     while (pos != std::string::npos)
     {
-        //TC_LOG_ERROR("scripts", "import: FixNULLfields");
+        //BOT_LOG_ERROR("scripts", "import: FixNULLBotFields");
         line.replace(pos, NullString.length(), "NULL");
         pos = line.find(NullString);
     }
 }
 
-std::set<uint32> ExistingNPCBots;
-std::set<uint32> ExistingNPCBotTransmogs;
-
 template<typename T>
 void StringToVal(std::string const& /*line*/, T& /*v*/, size_t /*begin_pos*/, size_t /*end_pos*/)
 {
-    LOG_ERROR("scripts", "StringToVal misuse");
+    BOT_LOG_ERROR("scripts", "StringToVal misuse");
 }
 /*
 template<>
 void StringToVal(std::string const& line, float& v, size_t begin_pos, size_t end_pos)
 {
     v = atof(line.substr(begin_pos, end_pos).c_str());
-    TC_LOG_ERROR("scripts", "import: StringToVal returned %.2f", v);
+    BOT_LOG_ERROR("scripts", "import: StringToVal returned %.2f", v);
 }
 */
 template<>
 void StringToVal(std::string const& line, uint32& v, size_t begin_pos, size_t end_pos)
 {
+    using v_type = std::remove_cvref_t<decltype(v)>;
+
     std::string subst = line.substr(begin_pos, end_pos - begin_pos).c_str();
-    v = (uint32)atoi(subst.c_str());
-    //TC_LOG_ERROR("scripts", "import: StringToVal returned %u (%u to %u: %s)",
+    Optional<v_type> ov = Bcore::Impl::StringConvertImpl::For<v_type>::FromString(subst);
+    v = *ov;
+    //BOT_LOG_ERROR("scripts", "import: StringToVal returned {} ({} to {}: {})",
     //    v, uint32(begin_pos), uint32(end_pos), subst.c_str());
 }
 
 template<typename T>
-std::string ValToString(T /*v*/)
-{
-    LOG_ERROR("scripts", "ValToString misuse");
-    return "";
-}
-template<>
-std::string ValToString(uint32 v)
-{
-    std::ostringstream stv;
-    stv << v;
-    return stv.str();
-}
-
-template<typename T>
-bool ExtractValueFromString(std::string const& line, T& v, size_t offset, std::string const sep = "'")
+bool ExtractValueFromString(std::string const& line, T& v, size_t offset)
 {
     uint32 sepNum = 0;
 
     size_t begin_pos = 0, end_pos = 0;
 
-    size_t pos = line.find(sep);
+    size_t pos = line.find('\'');
     while (pos != std::string::npos)
     {
         ++sepNum;
         if (begin_pos == 0 && !((sepNum-1) % 2) && ((sepNum-1) / 2) == offset)
         {
             begin_pos = pos + 1;
-            //TC_LOG_ERROR("scripts", "import: ExtractValueFromString begin_pos %u", uint32(begin_pos));
+            //BOT_LOG_ERROR("scripts", "import: ExtractValueFromString begin_pos %u", uint32(begin_pos));
         }
         else if (end_pos == 0 && ((sepNum-1) % 2) && ((sepNum-1) / 2) == offset)
         {
             end_pos = pos;
-            //TC_LOG_ERROR("scripts", "import: ExtractValueFromString end_pos %u", uint32(end_pos));
+            //BOT_LOG_ERROR("scripts", "import: ExtractValueFromString end_pos %u", uint32(end_pos));
         }
 
         if (begin_pos && end_pos)
             break;
 
-        pos = line.find(sep, pos + 1);
+        pos = line.find('\'', pos + 1);
     }
 
     if (begin_pos && end_pos)
@@ -206,10 +199,7 @@ bool ExtractValueFromString(std::string const& line, T& v, size_t offset, std::s
     return false;
 }
 
-typedef std::map<uint32, uint32> ReGuidMap;
-ReGuidMap itemReguidMap;
-
-inline bool ReGuidBotEquip(std::string& line, size_t ne_guid_offset)
+static bool ReGuidBotEquip(std::string& line, size_t ne_guid_offset)
 {
     /*
     INSERT INTO `characters_npcbot` (`entry`,`owner`,`roles`,`spec`,`faction`,`spell
@@ -234,16 +224,16 @@ inline bool ReGuidBotEquip(std::string& line, size_t ne_guid_offset)
     while (pos != std::string::npos)
     {
         ++sepNum;
-        //TC_LOG_ERROR("scripts", "import: ReGuidBotEquip sepNum %u", sepNum);
+        //BOT_LOG_ERROR("scripts", "import: ReGuidBotEquip sepNum %u", sepNum);
         if (begin_pos == 0 && !((sepNum-1) % 2) && ((sepNum-1) / 2) == ne_guid_offset)
         {
             begin_pos = pos + 1;
-            //TC_LOG_ERROR("scripts", "import: ReGuidBotEquip begin_pos %u", uint32(begin_pos));
+            //BOT_LOG_ERROR("scripts", "import: ReGuidBotEquip begin_pos %u", uint32(begin_pos));
         }
         else if (end_pos == 0 && ((sepNum-1) % 2) && ((sepNum-1) / 2) == ne_guid_offset)
         {
             end_pos = pos;
-            //TC_LOG_ERROR("scripts", "import: ReGuidBotEquip end_pos %u", uint32(end_pos));
+            //BOT_LOG_ERROR("scripts", "import: ReGuidBotEquip end_pos %u", uint32(end_pos));
         }
 
         if (begin_pos && end_pos)
@@ -256,20 +246,21 @@ inline bool ReGuidBotEquip(std::string& line, size_t ne_guid_offset)
                 if (line.substr(begin_pos, end_pos - begin_pos) == "0")
                     return true;
 
-                LOG_ERROR("scripts", "import: ReGuidBotEquip no guidVal from {} offset {}!",
+                BOT_LOG_ERROR("scripts", "import: ReGuidBotEquip no guidVal from {} offset {}!",
                     line.substr(begin_pos, end_pos - begin_pos).c_str(), uint32(ne_guid_offset));
                 break;
             }
 
-            if (!itemReguidMap.contains(guidVal))
+            decltype(ItemReguidMap)::const_iterator iter = ItemReguidMap.find(guidVal);
+            if (iter == ItemReguidMap.cend())
             {
-                LOG_ERROR("scripts", "import: ReGuidBotEquip reguid value not found for {}!", guidVal);
+                BOT_LOG_ERROR("scripts", "import: ReGuidBotEquip reguid value not found for {}!", guidVal);
                 break;
             }
 
-            uint32 neVal = itemReguidMap[guidVal];
-            //TC_LOG_ERROR("scripts", "import: ReGuidBotEquip replacing %u with %u", guidVal, neVal);
-            line.replace(begin_pos, end_pos - begin_pos, ValToString(neVal));
+            uint32 neVal = iter->second;
+            //BOT_LOG_ERROR("scripts", "import: ReGuidBotEquip replacing %u with %u", guidVal, neVal);
+            line.replace(begin_pos, end_pos - begin_pos, Bcore::Impl::StringConvertImpl::For<decltype(neVal)>::ToString(neVal));
             reguidDone = true;
             break;
         }
@@ -279,11 +270,11 @@ inline bool ReGuidBotEquip(std::string& line, size_t ne_guid_offset)
 
     return reguidDone;
 }
-inline bool ReGuidBotEquips(std::string& line)
+static bool ReGuidBotEquips(std::string& line)
 {
-    static const size_t ne_guid_offset_s = TableImportDatas[TABLE_TYPE_CHARACTERS_NPCBOT].guidOffsetBegin;
-    static const size_t ne_guid_offset_e = TableImportDatas[TABLE_TYPE_CHARACTERS_NPCBOT].guidOffsetEnd;
-    //TC_LOG_ERROR("scripts", "import: ReGuidBotEquips ne_guid_offset_s %u ne_guid_offset_e %u", uint32(ne_guid_offset_s), uint32(ne_guid_offset_e));
+    constexpr size_t ne_guid_offset_s = TableImportDatas[TABLE_TYPE_CHARACTERS_NPCBOT].guidOffsetBegin;
+    constexpr size_t ne_guid_offset_e = TableImportDatas[TABLE_TYPE_CHARACTERS_NPCBOT].guidOffsetEnd;
+    //BOT_LOG_ERROR("scripts", "import: ReGuidBotEquips ne_guid_offset_s %u ne_guid_offset_e %u", uint32(ne_guid_offset_s), uint32(ne_guid_offset_e));
 
     for (size_t i = ne_guid_offset_s; i <= ne_guid_offset_e; ++i)
     {
@@ -294,7 +285,7 @@ inline bool ReGuidBotEquips(std::string& line)
     return true;
 }
 
-inline bool ReGuidItemInstance(std::string& line, uint32& nextGuid)
+static bool ReGuidItemInstance(std::string& line, uint32& nextGuid)
 {
     /*
     INSERT INTO `item_instance` (`creatorGuid`,`giftCreatorGuid`,`count`,`duration`,
@@ -305,17 +296,17 @@ inline bool ReGuidItemInstance(std::string& line, uint32& nextGuid)
      0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ','0','100','0','
     ','4303949','48468','0'), etc.
     */
-    static const size_t ii_guid_offset = TableImportDatas[TABLE_TYPE_ITEM_INSTANCE].guidOffsetBegin;
-    static const std::string ii_vals_sep = "('";
-    static const std::string ii_sep = "'";
+    constexpr size_t ii_guid_offset = TableImportDatas[TABLE_TYPE_ITEM_INSTANCE].guidOffsetBegin;
+    const std::string ii_vals_sep = "('";
+    const std::string ii_sep = "'";
 
-    //TC_LOG_ERROR("scripts", "import: ReGuidItemInstance ii_guid_offset %u", uint32(ii_guid_offset));
+    //BOT_LOG_ERROR("scripts", "import: ReGuidItemInstance ii_guid_offset %u", uint32(ii_guid_offset));
 
     size_t pos1 = line.find(ii_vals_sep);
     ASSERT(pos1 != std::string::npos);
     while (pos1 != std::string::npos)
     {
-        //TC_LOG_ERROR("scripts", "cur pos1 %i", int32(pos1));
+        //BOT_LOG_ERROR("scripts", "cur pos1 %i", int32(pos1));
         bool reguidDone = false;
         uint32 sepNum = 0;
         size_t begin_pos = 0, end_pos = 0;
@@ -324,17 +315,17 @@ inline bool ReGuidItemInstance(std::string& line, uint32& nextGuid)
         while (pos2 != std::string::npos)
         {
             ++sepNum;
-            //TC_LOG_ERROR("scripts", "cur pos2 %i sep %u s %u e %u, cval %u",
+            //BOT_LOG_ERROR("scripts", "cur pos2 %i sep %u s %u e %u, cval %u",
             //    int32(pos2), sepNum, uint32(begin_pos), uint32(end_pos), uint32((sepNum-1) / 2));
             if (begin_pos == 0 && !((sepNum-1) % 2) && ((sepNum-1) / 2) == ii_guid_offset)
             {
                 begin_pos = pos2 + 1;
-                //TC_LOG_ERROR("scripts", "import: ReGuidItemInstance begin_pos %u", uint32(begin_pos));
+                //BOT_LOG_ERROR("scripts", "import: ReGuidItemInstance begin_pos %u", uint32(begin_pos));
             }
             else if (end_pos == 0 && ((sepNum-1) % 2) && ((sepNum-1) / 2) == ii_guid_offset)
             {
                 end_pos = pos2;
-                //TC_LOG_ERROR("scripts", "import: ReGuidItemInstance end_pos %u", uint32(end_pos));
+                //BOT_LOG_ERROR("scripts", "import: ReGuidItemInstance end_pos %u", uint32(end_pos));
             }
 
             if (begin_pos && end_pos)
@@ -343,19 +334,16 @@ inline bool ReGuidItemInstance(std::string& line, uint32& nextGuid)
                 StringToVal(line, guidVal, begin_pos, end_pos);
                 if (!guidVal)
                 {
-                    LOG_ERROR("scripts", "import: ReGuidItemInstance no guidVal from {}!",
-                        line.substr(begin_pos, end_pos - begin_pos).c_str());
+                    BOT_LOG_ERROR("scripts", "import: ReGuidItemInstance no guidVal from {}!", line.substr(begin_pos, end_pos - begin_pos));
                     return false;
                 }
                 //this is not checked at dump save
-                if (!itemReguidMap.contains(guidVal))
-                    itemReguidMap[guidVal] = nextGuid;
-                else
-                    LOG_ERROR("scripts", "import: ReGuidItemInstance item guid {} was already reguided to {}. Saved dump contains duplicate item guids - you'll have to fix them manually, proceeding anyways...",
-                        guidVal, itemReguidMap[guidVal]);
+                if (auto [iter, res] = ItemReguidMap.insert({ guidVal, nextGuid }); !res)
+                    BOT_LOG_ERROR("scripts", "import: ReGuidItemInstance item guid {} was already reguided to {}. Saved dump contains duplicate item guids - you'll have to fix them manually, proceeding anyways...",
+                        guidVal, iter->second);
 
-                //TC_LOG_ERROR("scripts", "import: ReGuidItemInstance replacing %u with %u", guidVal, nextGuid);
-                line.replace(begin_pos, end_pos - begin_pos, ValToString(nextGuid));
+                //BOT_LOG_ERROR("scripts", "import: ReGuidItemInstance replacing %u with %u", guidVal, nextGuid);
+                line.replace(begin_pos, end_pos - begin_pos, Bcore::Impl::StringConvertImpl::For<std::remove_cvref_t<decltype(nextGuid)>>::ToString(nextGuid));
 
                 ++nextGuid;
                 reguidDone = true;
@@ -367,7 +355,7 @@ inline bool ReGuidItemInstance(std::string& line, uint32& nextGuid)
 
         if (!reguidDone)
         {
-            LOG_ERROR("scripts", "import: ReGuidItemInstance reguid failed for string! Was:\n{}", line.c_str());
+            BOT_LOG_ERROR("scripts", "import: ReGuidItemInstance reguid failed for string! Was:\n{}", line.c_str());
             return false;
         }
 
@@ -377,7 +365,7 @@ inline bool ReGuidItemInstance(std::string& line, uint32& nextGuid)
     return true;
 }
 
-inline bool ReGuidCreature(std::string& line)
+static bool ReGuidCreature(std::string& line)
 {
     /*
     INSERT INTO `item_instance` (`guid`,`id`,`map`,`spawnMask`,`phaseMask`,`position
@@ -385,7 +373,7 @@ inline bool ReGuidCreature(std::string& line)
     3','30102','571','0','0','1','1','0','0','5735.7','-3037.58','296.551','0.558505
     ','120','0','0','1','0','0','0','0','0','','0');
     */
-    static const size_t cr_guid_offset = TableImportDatas[TABLE_TYPE_CREATURE].guidOffsetBegin;
+    constexpr size_t cr_guid_offset = TableImportDatas[TABLE_TYPE_CREATURE].guidOffsetBegin;
     static const std::string cr_vals_sep = "('";
     static const std::string cr_sep = "'";
 
@@ -400,16 +388,16 @@ inline bool ReGuidCreature(std::string& line)
     while (pos != std::string::npos)
     {
         ++sepNum;
-        //TC_LOG_ERROR("scripts", "import: ReGuidCreature sepNum %u", sepNum);
+        //BOT_LOG_ERROR("scripts", "import: ReGuidCreature sepNum %u", sepNum);
         if (begin_pos == 0 && !((sepNum-1) % 2) && ((sepNum-1) / 2) == cr_guid_offset)
         {
             begin_pos = pos + 1;
-            //TC_LOG_ERROR("scripts", "import: ReGuidCreature begin_pos %u", uint32(begin_pos));
+            //BOT_LOG_ERROR("scripts", "import: ReGuidCreature begin_pos %u", uint32(begin_pos));
         }
         else if (end_pos == 0 && ((sepNum-1) % 2) && ((sepNum-1) / 2) == cr_guid_offset)
         {
             end_pos = pos;
-            //TC_LOG_ERROR("scripts", "import: ReGuidCreature end_pos %u", uint32(end_pos));
+            //BOT_LOG_ERROR("scripts", "import: ReGuidCreature end_pos %u", uint32(end_pos));
         }
 
         if (begin_pos && end_pos)
@@ -418,14 +406,14 @@ inline bool ReGuidCreature(std::string& line)
             StringToVal(line, guidVal, begin_pos, end_pos);
             if (!guidVal)
             {
-                LOG_ERROR("scripts", "import: ReGuidCreature no guidVal from {}!",
+                BOT_LOG_ERROR("scripts", "import: ReGuidCreature no guidVal from {}!",
                     line.substr(begin_pos, end_pos - begin_pos).c_str());
                 return false;
             }
 
             uint32 nextGuid = sObjectMgr->GenerateCreatureSpawnId();
-            //TC_LOG_ERROR("scripts", "import: ReGuidCreature replacing %u with %u", guidVal, nextGuid);
-            line.replace(begin_pos, end_pos - begin_pos, ValToString(nextGuid));
+            //BOT_LOG_ERROR("scripts", "import: ReGuidCreature replacing %u with %u", guidVal, nextGuid);
+            line.replace(begin_pos, end_pos - begin_pos, Bcore::Impl::StringConvertImpl::For<decltype(nextGuid)>::ToString(nextGuid));
 
             reguidDone = true;
             break;
@@ -439,8 +427,8 @@ inline bool ReGuidCreature(std::string& line)
 
 BotDataDumpResult NPCBotsDump::Load(std::string const& file)
 {
-    std::ifstream input(file.c_str());
-    if (!input)
+    std::ifstream input(file);
+    if (!input.is_open())
         return BOT_DUMP_FAIL_FILE_NOT_EXIST;
 
     return LoadDump(input);
@@ -448,6 +436,9 @@ BotDataDumpResult NPCBotsDump::Load(std::string const& file)
 
 BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
 {
+    std::unordered_set<uint32> ExistingNPCBots;
+    std::unordered_set<uint32> ExistingNPCBotTransmogs;
+
     //prepare data for existing entries checks
     //bot entry
     //first - from `characters_npcbot`
@@ -486,7 +477,7 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
     ASSERT(result);
     fields = result->Fetch();
     static uint32 NextItemGuid = (*fields).Get<uint32>() + 1;
-    //TC_LOG_ERROR("scripts", "import: NextItemGuid %u", NextItemGuid);
+    //BOT_LOG_ERROR("scripts", "import: NextItemGuid %u", NextItemGuid);
 
     CharacterDatabaseTransaction ctrans = CharacterDatabase.BeginTransaction();
     WorldDatabaseTransaction wtrans = WorldDatabase.BeginTransaction();
@@ -516,7 +507,7 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
         if (curFieldsStr.empty())
         {
             std::string table_name = line.substr(line.find_first_of('`'));
-            //TC_LOG_ERROR("scripts", "import: found table %s", table_name.c_str());
+            //BOT_LOG_ERROR("scripts", "import: found table %s", table_name.c_str());
             curImportDataTableType = GetImportDataTableType(table_name);
             switch (curImportDataTableType)
             {
@@ -527,7 +518,7 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
                     curFieldsStr = TableImportDatas[curImportDataTableType].fieldsStr;
                     break;
                 default:
-                    LOG_ERROR("scripts", "import: unknown table {} at line {}", table_name.c_str(), lineNum);
+                    BOT_LOG_ERROR("scripts", "import: unknown table {} at line {}", table_name.c_str(), lineNum);
                     return BOT_DUMP_FAIL_FILE_CORRUPTED;
             }
 
@@ -540,7 +531,7 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
                 return BOT_DUMP_FAIL_FILE_CORRUPTED;
 
             curParamCount = TableImportDatas[curImportDataTableType].paramsCount;
-            //TC_LOG_ERROR("scripts", "import: param count %u", uint32(curParamCount));
+            //BOT_LOG_ERROR("scripts", "import: param count %u", uint32(curParamCount));
 
             curExecLine += line;
             continue;
@@ -549,7 +540,7 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
         {
             if (GetImportLineParamsCount(line) != curParamCount)
             {
-                LOG_ERROR("scripts", "import: invalid param count {} at line {}", uint32(curParamCount), lineNum);
+                BOT_LOG_ERROR("scripts", "import: invalid param count {} at line {}", uint32(curParamCount), lineNum);
                 return BOT_DUMP_FAIL_FILE_CORRUPTED;
             }
 
@@ -574,23 +565,23 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
             uint32 checkVal;
             if (needCheckVal && !ExtractValueFromString(line, checkVal, checkOffset))
             {
-                LOG_ERROR("scripts", "import: unable to extract value from line {} at offset {} type {}",
+                BOT_LOG_ERROR("scripts", "import: unable to extract value from line {} at offset {} type {}",
                     lineNum, uint32(checkOffset), uint32(curImportDataTableType));
                 return BOT_DUMP_FAIL_FILE_CORRUPTED;
             }
             switch (curImportDataTableType)
             {
                 case TABLE_TYPE_CHARACTERS_NPCBOT:
-                    if (ExistingNPCBots.find(checkVal) != ExistingNPCBots.end())
+                    if (ExistingNPCBots.contains(checkVal))
                     {
-                        LOG_ERROR("scripts", "import: NPCBot id {} already exists in `characters_npcbot` or `creature` table! Aborting", checkVal);
+                        BOT_LOG_ERROR("scripts", "import: NPCBot id {} already exists in `characters_npcbot` or `creature` table! Aborting", checkVal);
                         return BOT_DUMP_FAIL_DATA_OCCUPIED;
                     }
                     break;
                 case TABLE_TYPE_NPCBOT_TRANSMOG:
-                    if (ExistingNPCBotTransmogs.find(checkVal) != ExistingNPCBotTransmogs.end())
+                    if (ExistingNPCBotTransmogs.contains(checkVal))
                     {
-                        LOG_ERROR("scripts", "import: NPCBot id {} already exists in `characters_npcbot_transmog` table! Aborting", checkVal);
+                        BOT_LOG_ERROR("scripts", "import: NPCBot id {} already exists in `characters_npcbot_transmog` table! Aborting", checkVal);
                         return BOT_DUMP_FAIL_DATA_OCCUPIED;
                     }
                     break;
@@ -605,7 +596,7 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
                 continue;
             else if (line[line.size()-1] != ';')
             {
-                LOG_ERROR("scripts", "import: unexpected line ending at line {}", lineNum);
+                BOT_LOG_ERROR("scripts", "import: unexpected line ending at line {}", lineNum);
                 return BOT_DUMP_FAIL_FILE_CORRUPTED;
             }
         }
@@ -616,19 +607,19 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
             case TABLE_TYPE_ITEM_INSTANCE:
                 if (!ReGuidItemInstance(curExecLine, NextItemGuid))
                 {
-                    LOG_ERROR("scripts", "import: unable to reguid item instance at line {}!", lineNum);
+                    BOT_LOG_ERROR("scripts", "import: unable to reguid item instance at line {}!", lineNum);
                     return BOT_DUMP_FAIL_FILE_CORRUPTED;
                 }
                 if (!ReGuidBotEquips(ctransStrings.back()))
                 {
-                    LOG_ERROR("scripts", "import: unable to reguid bot equips at line {}:\n{}!", lineNum, ctransStrings.back().c_str());
+                    BOT_LOG_ERROR("scripts", "import: unable to reguid bot equips at line {}:\n{}!", lineNum, ctransStrings.back().c_str());
                     return BOT_DUMP_FAIL_FILE_CORRUPTED;
                 }
                 break;
             case TABLE_TYPE_CREATURE:
                 if (!ReGuidCreature(curExecLine))
                 {
-                    LOG_ERROR("scripts", "import: unable to reguid creature at line {}!", lineNum);
+                    BOT_LOG_ERROR("scripts", "import: unable to reguid creature at line {}!", lineNum);
                     return BOT_DUMP_FAIL_FILE_CORRUPTED;
                 }
                 break;
@@ -641,12 +632,12 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
             case TABLE_TYPE_CHARACTERS_NPCBOT:
             case TABLE_TYPE_NPCBOT_TRANSMOG:
             case TABLE_TYPE_ITEM_INSTANCE:
-                //TC_LOG_ERROR("scripts", "import: adding to chars DB");
+                //BOT_LOG_ERROR("scripts", "import: adding to chars DB");
                 ctransStrings.push_back(curExecLine);
                 //ctrans->Append(curExecLine.c_str());
                 break;
             case TABLE_TYPE_CREATURE:
-                //TC_LOG_ERROR("scripts", "import: adding to world DB");
+                //BOT_LOG_ERROR("scripts", "import: adding to world DB");
                 wtransStrings.push_back(curExecLine);
                 //wtrans->Append(curExecLine.c_str());
                 break;
@@ -664,29 +655,29 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
     if (!curExecLine.empty() || !curFieldsStr.empty() || curParamCount > 0 ||
         curImportDataTableType != IMPORT_TABLE_INVALID)
     {
-        LOG_ERROR("scripts", "import: unexpected file ending, incomplete query {}, fields {}, type {}!",
+        BOT_LOG_ERROR("scripts", "import: unexpected file ending, incomplete query {}, fields {}, type {}!",
             curExecLine.c_str(), curFieldsStr.c_str(), uint32(curImportDataTableType));
 
         return BOT_DUMP_FAIL_FILE_CORRUPTED;
     }
 
     //Replace all 'NULL' values as they are saved in dump with plain NULL
-    for (std::list<std::string>::iterator ci = ctransStrings.begin(); ci != ctransStrings.end(); ++ci)
-        FixNULLfields(*ci);
-    for (std::list<std::string>::iterator wi = wtransStrings.begin(); wi != wtransStrings.end(); ++wi)
-        FixNULLfields(*wi);
+    for (auto& cs : ctransStrings)
+        FixNULLBotFields(cs);
+    for (auto& ws : wtransStrings)
+        FixNULLBotFields(ws);
 
-    //TC_LOG_ERROR("scripts", "import: charDb execLines:");
-    for (std::list<std::string>::const_iterator ci = ctransStrings.begin(); ci != ctransStrings.end(); ++ci)
+    //BOT_LOG_ERROR("scripts", "import: charDb execLines:");
+    for (auto const& cs : ctransStrings)
     {
-        //TC_LOG_ERROR("scripts", "%s", (*ci).c_str());
-        ctrans->Append((*ci).c_str());
+        //BOT_LOG_ERROR("scripts", "%s", (*ci).c_str());
+        ctrans->Append(cs.c_str());
     }
-    //TC_LOG_ERROR("scripts", "import: worldDb execLines:");
-    for (std::list<std::string>::const_iterator wi = wtransStrings.begin(); wi != wtransStrings.end(); ++wi)
+    //BOT_LOG_ERROR("scripts", "import: worldDb execLines:");
+    for (auto const& ws : wtransStrings)
     {
-        //TC_LOG_ERROR("scripts", "%s", (*wi).c_str());
-        wtrans->Append((*wi).c_str());
+        //BOT_LOG_ERROR("scripts", "%s", (*wi).c_str());
+        wtrans->Append(ws.c_str());
     }
 
     CharacterDatabase.CommitTransaction(ctrans);
@@ -697,39 +688,34 @@ BotDataDumpResult NPCBotsDump::LoadDump(std::ifstream& input)
 
 BotDataDumpResult NPCBotsDump::Write(std::string const& file)
 {
-    if (FILE* f = fopen(file.c_str(), "r"))
-    {
-        fclose(f);
+    if (std::ifstream(file).is_open())
         return BOT_DUMP_FAIL_FILE_ALREADY_EXISTS;
-    }
 
     BotDataDumpResult ret = BOT_DUMP_SUCCESS;
-    std::string dumpstr;
-    if (!GetDump(dumpstr))
+    std::string dumpstr = GetDump();
+    if (dumpstr.empty())
         ret = BOT_DUMP_FAIL_INCOMPLETE;
     else
     {
-        FILE* fout = fopen(file.c_str(), "w");
-        if (!fout)
+        std::ofstream fout(file, std::ios_base::trunc);
+        if (!fout.is_open())
             return BOT_DUMP_FAIL_CANT_WRITE_TO_FILE;
-
-        fprintf(fout, "%s", dumpstr.c_str());
-        fclose(fout);
+        fout << dumpstr;
     }
 
     return ret;
 }
 
-bool NPCBotsDump::GetDump(std::string& dump)
+std::string NPCBotsDump::GetDump()
 {
     //bots are disabled but we need that data
     if (!BotDataMgr::AllBotsLoaded())
         BotDataMgr::LoadNpcBots(false);
 
-    dump = "";
+    std::ostringstream dump;
 
-    dump += "IMPORTANT NOTE: THIS DUMPFILE IS MADE FOR USE WITH THE 'NPCBOT DUMP' COMMAND ONLY - EITHER THROUGH INGAME CHAT OR ON CONSOLE!\n";
-    dump += "IMPORTANT NOTE: DO NOT apply it directly - it will irreversibly DAMAGE and CORRUPT your database! You have been warned!\n\n";
+    dump << "IMPORTANT NOTE: THIS DUMPFILE IS MADE FOR USE WITH THE 'NPCBOT DUMP' COMMAND ONLY - EITHER THROUGH INGAME CHAT OR ON CONSOLE!\n";
+    dump << "IMPORTANT NOTE: DO NOT apply it directly - it will irreversibly DAMAGE and CORRUPT your database! You have been warned!\n\n";
 
     BotStringTransaction trans;
 
@@ -752,19 +738,19 @@ bool NPCBotsDump::GetDump(std::string& dump)
     }
 
     if (!integrityChecked || valid_ids.empty())
-        return false;
+        return {};
 
-    for (std::set<uint32>::const_iterator ci = valid_ids.begin(); ci != valid_ids.end(); ++ci)
+    for (uint32 valid_id : valid_ids)
     {
-        AppendBotNPCBotData(&trans, *ci);
-        AppendBotNPCBotTransmogData(&trans, *ci);
-        AppendBotEquipsData(&trans, *ci);
-        AppendBotCreatureData(&trans, *ci);
+        AppendBotNPCBotData(&trans, valid_id);
+        AppendBotNPCBotTransmogData(&trans, valid_id);
+        AppendBotEquipsData(&trans, valid_id);
+        AppendBotCreatureData(&trans, valid_id);
     }
 
-    dump += trans.GetBuffer();
+    dump << trans.GetBuffer();
 
-    return true;
+    return dump.str();
 }
 
 BotDataVerificationResult NPCBotsDump::VerifyWriteData(uint32 entry) const
@@ -778,7 +764,7 @@ BotDataVerificationResult NPCBotsDump::VerifyWriteData(uint32 entry) const
     EquipmentInfo const* deinfo = BotDataMgr::GetBotEquipmentInfo(entry);
     if (!deinfo)
     {
-        LOG_ERROR("scripts", "NPCBotsDump::AppendBotCreatureData creature {} is not found in `creature_equip_template` table!", entry);
+        BOT_LOG_ERROR("scripts", "NPCBotsDump::AppendBotCreatureData creature {} is not found in `creature_equip_template` table!", entry);
         return BOT_DATA_INCOMPLETE;
     }
 
@@ -787,12 +773,12 @@ BotDataVerificationResult NPCBotsDump::VerifyWriteData(uint32 entry) const
     //creature is not spawned, corrupted
     if (!result)
     {
-        LOG_ERROR("scripts", "NPCBotsDump::AppendBotCreatureData creature {} is not found in `creature` table!", entry);
+        BOT_LOG_ERROR("scripts", "NPCBotsDump::AppendBotCreatureData creature {} is not found in `creature` table!", entry);
         return BOT_DATA_INCOMPLETE;
     }
     if (result->GetRowCount() > 1)
     {
-        LOG_ERROR("scripts", "NPCBotsDump::AppendBotCreatureData creature {} is spawned more that once!", entry);
+        BOT_LOG_ERROR("scripts", "NPCBotsDump::AppendBotCreatureData creature {} is spawned more that once!", entry);
         return BOT_DATA_INCOMPLETE;
     }
 
@@ -800,20 +786,20 @@ BotDataVerificationResult NPCBotsDump::VerifyWriteData(uint32 entry) const
 }
 
 template<typename T>
-inline void AppendEscapedValue(std::ostringstream& ss, T const& val, bool end = false)
+inline static void AppendEscapedValue(std::ostringstream& ss, T&& val, bool end = false)
 {
-    ss << '\'' << val << '\'';
+    ss << '\'' << std::forward<T>(val) << '\'';
     if (!end)
         ss << ',';
 }
-inline void AppendNULL(std::ostringstream& ss, bool end = false)
+inline static void AppendNULL(std::ostringstream& ss, bool end = false)
 {
     AppendEscapedValue(ss, "NULL", end);
     //ss << "NULL";
     //if (!end)
     //    ss << ',';
 }
-std::string const EscapedString(char const* cstr)
+static std::string EscapedString(char const* cstr)
 {
     std::string s = cstr;
     CharacterDatabase.EscapeString(s);
@@ -842,13 +828,13 @@ void NPCBotsDump::AppendBotNPCBotData(BotStringTransaction* trans, uint32 entry)
     else
     {
         std::ostringstream ssds;
-        for (NpcBotData::DisabledSpellsContainer::const_iterator ci = botData->disabled_spells.begin(); ci != botData->disabled_spells.end(); ++ci)
-            ssds << *ci << ' ';
-        AppendEscapedValue(ss, ssds.str());
+        for (uint32 bot_spell : botData->disabled_spells)
+            ssds << bot_spell << ' ';
+        AppendEscapedValue(ss, ssds.view());
     }
 
-    for (uint8 i = BOT_SLOT_MAINHAND; i != BOT_INVENTORY_SIZE; ++i)
-        AppendEscapedValue(ss, botData->equips[i], i == BOT_INVENTORY_SIZE-1);
+    for (auto i : NPCBots::index_array<uint8, BOT_INVENTORY_SIZE>)
+        AppendEscapedValue(ss, botData->equips[i], i == static_cast<BotEquipSlot>(BOT_INVENTORY_SIZE-1));
 
     ss << ");\n";
 
@@ -869,7 +855,7 @@ void NPCBotsDump::AppendBotNPCBotTransmogData(BotStringTransaction* trans, uint3
     ss << "INSERT INTO " << TableImportDatas[TABLE_TYPE_NPCBOT_TRANSMOG].name << '\n'
         << TableImportDatas[TABLE_TYPE_NPCBOT_TRANSMOG].fieldsStr << '\n';
 
-    static const uint32 transmog_fields_count = TableImportDatas[TABLE_TYPE_NPCBOT_TRANSMOG].paramsCount;
+    constexpr uint32 transmog_fields_count = TableImportDatas[TABLE_TYPE_NPCBOT_TRANSMOG].paramsCount;
 
     while (true)
     {
@@ -877,7 +863,7 @@ void NPCBotsDump::AppendBotNPCBotTransmogData(BotStringTransaction* trans, uint3
 
         ss << '(';
 
-        for (uint8 i = 0; i != transmog_fields_count; ++i)
+        for (auto i : NPCBots::index_array<uint32, transmog_fields_count>)
         {
             bool end = i == transmog_fields_count - 1;
             switch (i)
@@ -916,7 +902,7 @@ void NPCBotsDump::AppendBotEquipsData(BotStringTransaction* trans, uint32 entry)
     //"SELECT creatorGuid, giftCreatorGuid, count, duration, charges, flags, enchantments, randomPropertyId, durability, playedTime, text, guid, itemEntry, owner_guid "
     //  "FROM item_instance WHERE guid IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_SYNCH
 
-    for (uint8 i = 0; i != BOT_INVENTORY_SIZE; ++i)
+    for (auto i : NPCBots::index_array<uint8, BOT_INVENTORY_SIZE>)
         stmt->SetData(i, botData->equips[i]);
 
     PreparedQueryResult iiresult = CharacterDatabase.Query(stmt);
@@ -926,10 +912,9 @@ void NPCBotsDump::AppendBotEquipsData(BotStringTransaction* trans, uint32 entry)
         return;
 
     std::ostringstream ss;
-    ss << "INSERT INTO " << TableImportDatas[TABLE_TYPE_ITEM_INSTANCE].name << '\n'
-        << TableImportDatas[TABLE_TYPE_ITEM_INSTANCE].fieldsStr << '\n';
+    ss << "INSERT INTO " << TableImportDatas[TABLE_TYPE_ITEM_INSTANCE].name << '\n' << TableImportDatas[TABLE_TYPE_ITEM_INSTANCE].fieldsStr << '\n';
 
-    static const uint32 item_instance_fields_count = TableImportDatas[TABLE_TYPE_ITEM_INSTANCE].paramsCount;
+    constexpr uint32 item_instance_fields_count = TableImportDatas[TABLE_TYPE_ITEM_INSTANCE].paramsCount;
 
     while (true)
     {
@@ -937,7 +922,7 @@ void NPCBotsDump::AppendBotEquipsData(BotStringTransaction* trans, uint32 entry)
 
         ss << '(';
 
-        for (uint8 i = 0; i != item_instance_fields_count; ++i)
+        for (auto i : NPCBots::index_array<uint8, item_instance_fields_count>)
         {
             bool end = i == item_instance_fields_count-1;
             switch (i)
@@ -989,11 +974,11 @@ void NPCBotsDump::AppendBotCreatureData(BotStringTransaction* trans, uint32 entr
 
     ss << '(';
 
-    static const uint32 creature_fields_count = TableImportDatas[TABLE_TYPE_CREATURE].paramsCount;
+    constexpr uint32 creature_fields_count = TableImportDatas[TABLE_TYPE_CREATURE].paramsCount;
 
     Field* fields = cresult->Fetch();
 
-    for (uint8 i = 0; i != creature_fields_count; ++i)
+    for (auto i : NPCBots::index_array<uint8, creature_fields_count>)
     {
         bool end = i == creature_fields_count-1;
         switch (i)

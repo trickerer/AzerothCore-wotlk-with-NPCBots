@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -19,6 +19,7 @@
 #include "PassiveAI.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
+#include "SharedDefines.h"
 #include "SpellAuraEffects.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
@@ -161,7 +162,7 @@ public:
             events.Reset();
             bIntro = false;
             bPhase3 = false;
-            me->ApplySpellImmune(0, IMMUNITY_ID, RAID_MODE(66193, 67855, 67856, 67857), true);
+            me->ApplySpellImmune(0, IMMUNITY_ID, sSpellMgr->GetSpellIdForDifficulty(SPELL_PERMAFROST, me), true);
             me->m_SightDistance = 90.0f; // for MoveInLineOfSight distance
         }
 
@@ -501,8 +502,8 @@ public:
 
         void JustDied(Unit*  /*killer*/) override
         {
-            me->CastSpell(me, RAID_MODE(SPELL_TRAITOR_KING_10, SPELL_TRAITOR_KING_25, SPELL_TRAITOR_KING_10, SPELL_TRAITOR_KING_25), true);
-            me->m_Events.AddEvent(new HideNpcEvent(*me), me->m_Events.CalculateTime(5000));
+            me->CastSpell(me, SPELL_TRAITOR_KING, true);
+            me->m_Events.AddEventAtOffset(new HideNpcEvent(*me), 5s);
         }
 
         bool CanAIAttack(Unit const* target) const override
@@ -574,7 +575,7 @@ public:
             if (spell->Id == SPELL_SPIKE_FAIL)
             {
                 me->RemoveAllAuras();
-                me->DespawnOrUnsummon(1500);
+                me->DespawnOrUnsummon(1500ms);
             }
         }
 
@@ -655,7 +656,7 @@ public:
                 me->NearTeleportTo(target->GetPositionX() + cos(o) * 5.0f, target->GetPositionY() + std::sin(o) * 5.0f, target->GetPositionZ() + 0.6f, target->GetOrientation());
                 AttackStart(target);
                 me->GetMotionMaster()->MoveChase(target);
-                events.DelayEvents(3000);
+                events.DelayEvents(3s);
             }
         }
 
@@ -679,7 +680,7 @@ public:
                     events.Repeat(30s, 45s);
                     break;
                 case EVENT_SUBMERGE:
-                    if (HealthBelowPct(80) && !me->HasAura(RAID_MODE(66193, 67855, 67856, 67857))) // not having permafrost - allow submerge
+                    if (HealthBelowPct(80) && !me->HasAura(sSpellMgr->GetSpellIdForDifficulty(SPELL_PERMAFROST, me))) // not having permafrost - allow submerge
                     {
                         me->GetMotionMaster()->MoveIdle();
                         me->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
@@ -710,7 +711,7 @@ public:
 
         void JustDied(Unit*  /*killer*/) override
         {
-            me->m_Events.AddEvent(new HideNpcEvent(*me), me->m_Events.CalculateTime(5000));
+            me->m_Events.AddEventAtOffset(new HideNpcEvent(*me), 5s);
         }
 
         bool CanAIAttack(Unit const* target) const override
@@ -829,41 +830,35 @@ public:
     };
 };
 
-class spell_pursuing_spikes : public SpellScriptLoader
+class spell_pursuing_spikes_aura : public AuraScript
 {
-public:
-    spell_pursuing_spikes() : SpellScriptLoader("spell_pursuing_spikes") { }
+    PrepareAuraScript(spell_pursuing_spikes_aura);
 
-    class spell_pursuing_spikesAuraScript : public AuraScript
+    bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        PrepareAuraScript(spell_pursuing_spikesAuraScript)
+        return ValidateSpellInfo({ SPELL_SPIKE_FAIL, SPELL_IMPALE });
+    }
 
-        void HandleEffectPeriodic(AuraEffect const*   /*aurEff*/)
+    void HandleEffectPeriodic(AuraEffect const*   /*aurEff*/)
+    {
+        if (Unit* target = GetTarget())
         {
-            if (Unit* target = GetTarget())
+            if (Creature* c = target->FindNearestCreature(NPC_FROST_SPHERE, 8.0f, true))
             {
-                if (Creature* c = target->FindNearestCreature(NPC_FROST_SPHERE, 8.0f, true))
-                {
-                    target->UpdatePosition(*c, false);
-                    target->CastCustomSpell(SPELL_SPIKE_FAIL, SPELLVALUE_MAX_TARGETS, 1);
-                    if (target->IsCreature())
-                        target->ToCreature()->AI()->DoAction(-1);
-                    Remove();
-                    return;
-                }
-                target->CastSpell((Unit*)nullptr, SPELL_IMPALE, true);
+                target->UpdatePosition(*c, false);
+                target->CastCustomSpell(SPELL_SPIKE_FAIL, SPELLVALUE_MAX_TARGETS, 1);
+                if (target->IsCreature())
+                    target->ToCreature()->AI()->DoAction(-1);
+                Remove();
+                return;
             }
+            target->CastSpell((Unit*)nullptr, SPELL_IMPALE, true);
         }
+    }
 
-        void Register() override
-        {
-            OnEffectPeriodic += AuraEffectPeriodicFn(spell_pursuing_spikesAuraScript::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
-        }
-    };
-
-    AuraScript* GetAuraScript() const override
+    void Register() override
     {
-        return new spell_pursuing_spikesAuraScript();
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pursuing_spikes_aura::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -874,73 +869,56 @@ enum eLeechingSwarmSpells
     SPELL_LEECHING_SWARM_HEAL   = 66125,
 };
 
-class spell_gen_leeching_swarm : public SpellScriptLoader
+class spell_gen_leeching_swarm_aura : public AuraScript
 {
-public:
-    spell_gen_leeching_swarm() : SpellScriptLoader("spell_gen_leeching_swarm") { }
+    PrepareAuraScript(spell_gen_leeching_swarm_aura);
 
-    class spell_gen_leeching_swarm_AuraScript : public AuraScript
+    bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        PrepareAuraScript(spell_gen_leeching_swarm_AuraScript);
+        return ValidateSpellInfo({ SPELL_LEECHING_SWARM_DMG, SPELL_LEECHING_SWARM_HEAL });
+    }
 
-        bool Validate(SpellInfo const* /*spellInfo*/) override
-        {
-            return ValidateSpellInfo({ SPELL_LEECHING_SWARM_DMG, SPELL_LEECHING_SWARM_HEAL });
-        }
-
-        void HandleEffectPeriodic(AuraEffect const* aurEff)
-        {
-            if (Unit* caster = GetCaster())
-            {
-                int32 lifeLeeched = GetTarget()->CountPctFromCurHealth(aurEff->GetAmount());
-                if (lifeLeeched < 250)
-                    lifeLeeched = 250;
-                // Damage
-                caster->CastCustomSpell(GetTarget(), SPELL_LEECHING_SWARM_DMG, &lifeLeeched, 0, 0, true);
-                // Heal is handled in damage spell. It has to heal the same amount, but some of the dmg can be resisted.
-            }
-        }
-
-        void Register() override
-        {
-            OnEffectPeriodic += AuraEffectPeriodicFn(spell_gen_leeching_swarm_AuraScript::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
-        }
-    };
-
-    AuraScript* GetAuraScript() const override
+    void HandleEffectPeriodic(AuraEffect const* aurEff)
     {
-        return new spell_gen_leeching_swarm_AuraScript();
+        if (Unit* caster = GetCaster())
+        {
+            int32 lifeLeeched = GetTarget()->CountPctFromCurHealth(aurEff->GetAmount());
+            if (lifeLeeched < 250)
+                lifeLeeched = 250;
+            // Damage
+            caster->CastCustomSpell(GetTarget(), SPELL_LEECHING_SWARM_DMG, &lifeLeeched, 0, 0, true);
+            // Heal is handled in damage spell. It has to heal the same amount, but some of the dmg can be resisted.
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_gen_leeching_swarm_aura::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
-class spell_gen_leeching_swarm_dmg : public SpellScriptLoader
+class spell_gen_leeching_swarm_dmg : public SpellScript
 {
-public:
-    spell_gen_leeching_swarm_dmg() : SpellScriptLoader("spell_gen_leeching_swarm_dmg") {}
+    PrepareSpellScript(spell_gen_leeching_swarm_dmg);
 
-    class spell_gen_leeching_swarm_dmg_SpellScript : public SpellScript
+    bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        PrepareSpellScript(spell_gen_leeching_swarm_dmg_SpellScript);
+        return ValidateSpellInfo({ SPELL_LEECHING_SWARM_HEAL });
+    }
 
-        void HandleAfterHit()
-        {
-            if (Unit* caster = GetCaster())
-                if (GetHitDamage() > 0)
-                {
-                    int32 damage = GetHitDamage();
-                    caster->CastCustomSpell(caster, SPELL_LEECHING_SWARM_HEAL, &damage, 0, 0, true);
-                }
-        }
-
-        void Register() override
-        {
-            AfterHit += SpellHitFn(spell_gen_leeching_swarm_dmg_SpellScript::HandleAfterHit);
-        }
-    };
-
-    SpellScript* GetSpellScript() const override
+    void HandleAfterHit()
     {
-        return new spell_gen_leeching_swarm_dmg_SpellScript();
+        if (Unit* caster = GetCaster())
+            if (GetHitDamage() > 0)
+            {
+                int32 damage = GetHitDamage();
+                caster->CastCustomSpell(caster, SPELL_LEECHING_SWARM_HEAL, &damage, 0, 0, true);
+            }
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_gen_leeching_swarm_dmg::HandleAfterHit);
     }
 };
 
@@ -951,7 +929,7 @@ void AddSC_boss_anubarak_trial()
     new npc_frost_sphere();
     new npc_nerubian_burrower();
     new npc_anubarak_spike();
-    new spell_pursuing_spikes();
-    new spell_gen_leeching_swarm();
-    new spell_gen_leeching_swarm_dmg();
+    RegisterSpellScript(spell_pursuing_spikes_aura);
+    RegisterSpellScript(spell_gen_leeching_swarm_aura);
+    RegisterSpellScript(spell_gen_leeching_swarm_dmg);
 }

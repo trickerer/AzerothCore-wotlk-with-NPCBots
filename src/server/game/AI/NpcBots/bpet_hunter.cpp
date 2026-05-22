@@ -171,9 +171,9 @@ public:
                 !me->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE) && Rand() < 20)
             {
                 WorldObject* result = nullptr;
-                Acore::AnyDeadUnitSpellTargetInRangeCheck check(me, 5.f, sSpellMgr->GetSpellInfo(CARRION_FEEDER_1), TARGET_CHECK_ENEMY);
-                Acore::WorldObjectSearcher<Acore::AnyDeadUnitSpellTargetInRangeCheck> searcher(me, result, check);
-                Cell::VisitWorldObjects(me, searcher, 5.f);
+                Bcore::AnyDeadUnitSpellTargetInRangeCheck check(me, 5.f, sSpellMgr->GetSpellInfo(CARRION_FEEDER_1), TARGET_CHECK_ENEMY);
+                Bcore::WorldObjectSearcher<Bcore::AnyDeadUnitSpellTargetInRangeCheck> searcher(me, result, check);
+                Cell::VisitObjects(me, searcher, 5.f);
 
                 if (result)
                 {
@@ -244,9 +244,9 @@ public:
 
             //improved + Longevity applied to cds
 
-            if (IsSpellReady(BESTIAL_WRATH_1, diff, false) && canDPS && opponent && dist < 10 &&
+            if (IsSpellReady(BESTIAL_WRATH_1, diff, false) && canDPS && dist < 10 &&
                 (opponent->GetHealth() > petOwner->GetMaxHealth()/4 * (1 + opponent->getAttackers().size()) ||
-                opponent->GetTypeId() == TYPEID_PLAYER))
+                opponent->IsPlayer()))
             {
                 if (petOwner->AddAura(GetSpell(BESTIAL_WRATH_1), me))
                 {
@@ -302,7 +302,7 @@ public:
             if (IsSpellReady(BULLHEADED_1, diff, false) && GetHealthPCT(me) < 90 &&
                 ((!me->getAttackers().empty() && me->GetDistance(*me->getAttackers().begin()) < 7) ||
                 (dist > 3 && !opponent->HasInArc(float(M_PI)/2, me) &&
-                (CCed(me, true) || me->HasAuraWithMechanic(1<<MECHANIC_SNARE)))))
+                (CCed(me, true) || me->HasAuraWithMechanic(1u<<MECHANIC_SNARE)))))
             {
                 me->CastSpell(me, GetSpell(BULLHEADED_1), false);
                 SetSpellCooldown(BULLHEADED_1, 31500);
@@ -318,7 +318,7 @@ public:
                 return;
             }
 
-            if (IsSpellReady(CALL_OF_THE_WILD_1, diff, false) && canDPS && opponent && dist < 10)
+            if (IsSpellReady(CALL_OF_THE_WILD_1, diff, false) && canDPS && dist < 10)
             {
                 me->CastSpell(me, GetSpell(CALL_OF_THE_WILD_1), false);
                 SetSpellCooldown(CALL_OF_THE_WILD_1, 210000);
@@ -354,7 +354,7 @@ public:
             {
                 if (IsSpellReady(SNATCH_1, diff, false) && canDPS && focus >= 20 &&
                     me->IsWithinMeleeRange(opponent) && !opponent->HasAuraType(SPELL_AURA_MOD_DISARM) &&
-                    ((opponent->GetTypeId() == TYPEID_PLAYER) ? opponent->ToPlayer()->GetWeaponForAttack(BASE_ATTACK) != nullptr :
+                    ((opponent->IsPlayer()) ? opponent->ToPlayer()->GetWeaponForAttack(BASE_ATTACK) != nullptr :
                     opponent->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID) != 0))
                 {
                     me->CastSpell(opponent, GetSpell(SNATCH_1), false);
@@ -651,7 +651,7 @@ public:
 
             uint32 CHARGE = IsPetTypeSpell(SWOOP_1) ? SWOOP_1 : IsPetTypeSpell(CHARGE_1) ? CHARGE_1 : 0;
             if (CHARGE && GetSpell(CHARGE) && IsSpellReady(CHARGE, diff, false) && !CCed(opponent, true) && !me->HasStealthAura() &&
-                !(opponent->GetTypeId() == TYPEID_UNIT && opponent->ToCreature()->isWorldBoss()) &&
+                !(opponent->IsCreature() && opponent->ToCreature()->isWorldBoss()) &&
                 !HasBotCommandState(BOT_COMMAND_STAY) &&
                 dist > 8 && dist < 25)
             {
@@ -692,9 +692,9 @@ public:
         {
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
-            bot_pet_ai::DamageDealt(victim, damage, damageType);
+            bot_pet_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override

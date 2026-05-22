@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -44,7 +44,7 @@ AC_API_EXPORT EnumText EnumUtils<CreatureFlagsExtra>::ToString(CreatureFlagsExtr
         case CREATURE_FLAG_EXTRA_GHOST_VISIBILITY: return { "CREATURE_FLAG_EXTRA_GHOST_VISIBILITY", "CREATURE_FLAG_EXTRA_GHOST_VISIBILITY", "creature will only be visible to dead players" };
         case CREATURE_FLAG_EXTRA_USE_OFFHAND_ATTACK: return { "CREATURE_FLAG_EXTRA_USE_OFFHAND_ATTACK", "CREATURE_FLAG_EXTRA_USE_OFFHAND_ATTACK", "/ @todo: Implement CREATURE_FLAG_EXTRA_USE_OFFHAND_ATTACK (creature will use offhand attacks)" };
         case CREATURE_FLAG_EXTRA_NO_SELL_VENDOR: return { "CREATURE_FLAG_EXTRA_NO_SELL_VENDOR", "CREATURE_FLAG_EXTRA_NO_SELL_VENDOR", "players can't sell items to this vendor" };
-        case CREATURE_FLAG_EXTRA_IGNORE_COMBAT: return { "CREATURE_FLAG_EXTRA_IGNORE_COMBAT", "CREATURE_FLAG_EXTRA_IGNORE_COMBAT", "" };
+        case CREATURE_FLAG_EXTRA_CANNOT_ENTER_COMBAT: return { "CREATURE_FLAG_EXTRA_CANNOT_ENTER_COMBAT", "CREATURE_FLAG_EXTRA_CANNOT_ENTER_COMBAT", "creature is not allowed to enter combat" };
         case CREATURE_FLAG_EXTRA_WORLDEVENT: return { "CREATURE_FLAG_EXTRA_WORLDEVENT", "CREATURE_FLAG_EXTRA_WORLDEVENT", "custom flag for world event creatures (left room for merging)" };
         case CREATURE_FLAG_EXTRA_GUARD: return { "CREATURE_FLAG_EXTRA_GUARD", "CREATURE_FLAG_EXTRA_GUARD", "Creature is guard" };
         case CREATURE_FLAG_EXTRA_IGNORE_FEIGN_DEATH: return { "CREATURE_FLAG_EXTRA_IGNORE_FEIGN_DEATH", "CREATURE_FLAG_EXTRA_IGNORE_FEIGN_DEATH", "creature ignores feign death" };
@@ -58,7 +58,7 @@ AC_API_EXPORT EnumText EnumUtils<CreatureFlagsExtra>::ToString(CreatureFlagsExtr
         case CREATURE_FLAG_EXTRA_MODULE: return { "CREATURE_FLAG_EXTRA_MODULE", "CREATURE_FLAG_EXTRA_MODULE", "" };
         case CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE: return { "CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE", "CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE", "Prevent creatures from calling for assistance on initial aggro" };
         case CREATURE_FLAG_EXTRA_IGNORE_ALL_ASSISTANCE_CALLS: return { "CREATURE_FLAG_EXTRA_IGNORE_ALL_ASSISTANCE_CALLS", "CREATURE_FLAG_EXTRA_IGNORE_ALL_ASSISTANCE_CALLS", "Prevents creature from responding to assistance calls" };
-        case CREATURE_FLAG_DONT_OVERRIDE_ENTRY_SAI: return { "CREATURE_FLAG_DONT_OVERRIDE_ENTRY_SAI", "CREATURE_FLAG_DONT_OVERRIDE_ENTRY_SAI", "Load both ENTRY and GUID specific SAI" };
+        case CREATURE_FLAG_EXTRA_DONT_OVERRIDE_ENTRY_SAI: return { "CREATURE_FLAG_EXTRA_DONT_OVERRIDE_ENTRY_SAI", "CREATURE_FLAG_EXTRA_DONT_OVERRIDE_ENTRY_SAI", "Load both ENTRY and GUID specific SAI" };
         case CREATURE_FLAG_EXTRA_DUNGEON_BOSS: return { "CREATURE_FLAG_EXTRA_DUNGEON_BOSS", "CREATURE_FLAG_EXTRA_DUNGEON_BOSS", "creature is a dungeon boss (SET DYNAMICALLY, DO NOT ADD IN DB)" };
         case CREATURE_FLAG_EXTRA_IGNORE_PATHFINDING: return { "CREATURE_FLAG_EXTRA_IGNORE_PATHFINDING", "CREATURE_FLAG_EXTRA_IGNORE_PATHFINDING", "creature ignore pathfinding" };
         case CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK: return { "CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK", "CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK", "creature is immune to knockback effects" };
@@ -88,7 +88,7 @@ AC_API_EXPORT CreatureFlagsExtra EnumUtils<CreatureFlagsExtra>::FromIndex(std::s
         case 10: return CREATURE_FLAG_EXTRA_GHOST_VISIBILITY;
         case 11: return CREATURE_FLAG_EXTRA_USE_OFFHAND_ATTACK;
         case 12: return CREATURE_FLAG_EXTRA_NO_SELL_VENDOR;
-        case 13: return CREATURE_FLAG_EXTRA_IGNORE_COMBAT;
+        case 13: return CREATURE_FLAG_EXTRA_CANNOT_ENTER_COMBAT;
         case 14: return CREATURE_FLAG_EXTRA_WORLDEVENT;
         case 15: return CREATURE_FLAG_EXTRA_GUARD;
         case 16: return CREATURE_FLAG_EXTRA_IGNORE_FEIGN_DEATH;
@@ -102,7 +102,7 @@ AC_API_EXPORT CreatureFlagsExtra EnumUtils<CreatureFlagsExtra>::FromIndex(std::s
         case 24: return CREATURE_FLAG_EXTRA_MODULE;
         case 25: return CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE;
         case 26: return CREATURE_FLAG_EXTRA_IGNORE_ALL_ASSISTANCE_CALLS;
-        case 27: return CREATURE_FLAG_DONT_OVERRIDE_ENTRY_SAI;
+        case 27: return CREATURE_FLAG_EXTRA_DONT_OVERRIDE_ENTRY_SAI;
         case 28: return CREATURE_FLAG_EXTRA_DUNGEON_BOSS;
         case 29: return CREATURE_FLAG_EXTRA_IGNORE_PATHFINDING;
         case 30: return CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK;
@@ -129,7 +129,7 @@ AC_API_EXPORT std::size_t EnumUtils<CreatureFlagsExtra>::ToIndex(CreatureFlagsEx
         case CREATURE_FLAG_EXTRA_GHOST_VISIBILITY: return 10;
         case CREATURE_FLAG_EXTRA_USE_OFFHAND_ATTACK: return 11;
         case CREATURE_FLAG_EXTRA_NO_SELL_VENDOR: return 12;
-        case CREATURE_FLAG_EXTRA_IGNORE_COMBAT: return 13;
+        case CREATURE_FLAG_EXTRA_CANNOT_ENTER_COMBAT: return 13;
         case CREATURE_FLAG_EXTRA_WORLDEVENT: return 14;
         case CREATURE_FLAG_EXTRA_GUARD: return 15;
         case CREATURE_FLAG_EXTRA_IGNORE_FEIGN_DEATH: return 16;
@@ -143,7 +143,7 @@ AC_API_EXPORT std::size_t EnumUtils<CreatureFlagsExtra>::ToIndex(CreatureFlagsEx
         case CREATURE_FLAG_EXTRA_MODULE: return 24;
         case CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE: return 25;
         case CREATURE_FLAG_EXTRA_IGNORE_ALL_ASSISTANCE_CALLS: return 26;
-        case CREATURE_FLAG_DONT_OVERRIDE_ENTRY_SAI: return 27;
+        case CREATURE_FLAG_EXTRA_DONT_OVERRIDE_ENTRY_SAI: return 27;
         case CREATURE_FLAG_EXTRA_DUNGEON_BOSS: return 28;
         case CREATURE_FLAG_EXTRA_IGNORE_PATHFINDING: return 29;
         case CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK: return 30;

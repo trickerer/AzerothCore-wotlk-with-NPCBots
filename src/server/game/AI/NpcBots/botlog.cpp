@@ -1,6 +1,6 @@
 #include "bot_ai.h"
+#include "botconfig.h"
 #include "botdatamgr.h"
-#include "botmgr.h"
 #include "botlog.h"
 #include "Creature.h"
 #include "DatabaseEnvFwd.h"
@@ -18,7 +18,7 @@ static void BotLogImpl(uint16 log_type, uint32 entry, int32 owner, int32 mapid, 
     {
         if (sparams[i].size() > MAX_BOT_LOG_PARAM_LENGTH)
         {
-            LOG_DEBUG("npcbots", "Bot logger: while writing type {} entry {} owner {} param {} '{}' was truncated to {} symbols!",
+            BOT_LOG_DEBUG("npcbots", "Bot logger: while writing type {} entry {} owner {} param {} '{}' was truncated to {} symbols!",
                 log_type, entry, owner, uint32(i+1), sparams[i], MAX_BOT_LOG_PARAM_LENGTH);
             sparams[i] = sparams[i].substr(0, MAX_BOT_LOG_PARAM_LENGTH);
         }
@@ -44,25 +44,24 @@ inline static void BotLogImpl(uint16 log_type, Creature const* bot, int32 owner,
     BotLogImpl(log_type, bot->GetEntry(), owner, (int32)bot->GetMapId(), (int8)!!bot->FindMap(), (int8)bot->IsInWorld(), std::forward<Args>(params)...);
 }
 
-template<typename... Args>
-requires NPCBots::LoggableArguments<Args...>
-void BotLogger::Log(uint16 log_type, Creature const* bot, Args&&... params)
+void BotLogger::Log(uint16 log_type, Creature const* bot, NPCBots::LoggableArguments auto&&... params)
 {
-    if (!BotMgr::IsNpcBotLogEnabled())
+    if (!BotCfg::IsNpcBotLogEnabled())
         return;
 
-    BotLogImpl(log_type, bot, int32(bot->GetBotAI() ? bot->GetBotAI()->GetBotOwnerGuid() : -1), std::forward<Args>(params)...);
+    if (bot->IsSummon() && !((1ull<<(log_type-1)) & NPCBOT_LOG_MASK_DUNGEON_BOT))
+        return;
+
+    BotLogImpl(log_type, bot, int32(bot->GetBotAI() ? bot->GetBotAI()->GetBotOwnerGuid() : -1), std::forward<decltype(params)>(params)...);
 }
 
-template<typename... Args>
-requires NPCBots::LoggableArguments<Args...>
-void BotLogger::Log(uint16 log_type, uint32 entry, Args&&... params)
+void BotLogger::Log(uint16 log_type, uint32 entry,  NPCBots::LoggableArguments auto&&... params)
 {
-    if (!BotMgr::IsNpcBotLogEnabled())
+    if (!BotCfg::IsNpcBotLogEnabled())
         return;
 
     if (Creature const* bot = entry ? BotDataMgr::FindBot(entry) : nullptr)
-        BotLogger::Log(log_type, bot, std::forward<Args>(params)...);
+        BotLogger::Log(log_type, bot, std::forward<decltype(params)>(params)...);
     else
     {
         if (entry)
@@ -70,9 +69,9 @@ void BotLogger::Log(uint16 log_type, uint32 entry, Args&&... params)
             std::stringstream ss;
             using compounder = int[];
             (void)compounder { 0, ((void)(ss << ' ' << params), 0) ... };
-            LOG_DEBUG("npcbots", "Logging unregistered bot entry {}: type {} params:{}", entry, log_type, ss.str());
+            BOT_LOG_DEBUG("npcbots", "Logging unregistered bot entry {}: type {} params:{}", entry, log_type, ss.str());
         }
-        BotLogImpl(log_type, entry, -1, -1, -1, -1, std::forward<Args>(params)...);
+        BotLogImpl(log_type, entry, -1, -1, -1, -1, std::forward<decltype(params)>(params)...);
     }
 }
 
@@ -84,4 +83,4 @@ template void BotLogger::Log(uint16, Creature const*, uint32&&, uint32&&, uint32
 template void BotLogger::Log(uint16, Creature const*, uint32&&, uint32&&, uint32&&, uint32&&, uint32&&);
 template void BotLogger::Log(uint16, uint32);
 template void BotLogger::Log(uint16, uint32, std::string_view&&);
-template void BotLogger::Log(uint16, uint32, std::string&, std::string&, std::string&, std::string&, std::string&);
+template void BotLogger::Log(uint16, uint32, std::string_view&&, std::string_view&&, std::string_view&&, std::string_view&&, std::string_view&&);

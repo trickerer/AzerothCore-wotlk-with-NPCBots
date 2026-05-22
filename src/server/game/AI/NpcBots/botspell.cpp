@@ -1,3 +1,4 @@
+#include "botdefine.h"
 #include "botspell.h"
 #include "DBCStores.h"
 #include "Log.h"
@@ -7,8 +8,8 @@
 
 #include <unordered_map>
 
-typedef std::unordered_map<uint32, SpellInfo> SpellInfoOverridesMap;
-typedef std::unordered_map<uint32, SpellProcEntry> SpellProcOverridesMap;
+using SpellInfoOverridesMap = std::unordered_map<uint32, SpellInfo>;
+using SpellProcOverridesMap = std::unordered_map<uint32, SpellProcEntry>;
 static SpellInfoOverridesMap botSpellInfoOverrides;
 static SpellProcOverridesMap botSpellProcOverrides;
 
@@ -1902,7 +1903,7 @@ void GenerateBotCustomSpells()
         }
     }
 
-    LOG_INFO("server.loading", ">> Bot spellInfo overrides generated for {} spells", uint32(botSpellInfoOverrides.size()));
+    BOT_LOG_INFO("server.loading", ">> Bot spellInfo overrides generated for {} spells", uint32(botSpellInfoOverrides.size()));
 
     GenerateBotCustomSpellProcs();
 }

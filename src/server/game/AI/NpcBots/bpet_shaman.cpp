@@ -70,7 +70,7 @@ public:
             if ((liveTimer += diff) >= SPIRITWOLF_DURATION)
             {
                 canUpdate = false;
-                me->ToTempSummon()->UnSummon(1);
+                me->ToTempSummon()->UnSummon(1ms);
                 return;
             }
 
@@ -101,7 +101,7 @@ public:
 
             if (IsSpellReady(LEAP_1, diff) &&
                 !HasBotCommandState(BOT_COMMAND_STAY) &&
-                !(opponent->GetTypeId() == TYPEID_UNIT && opponent->ToCreature()->isWorldBoss()) &&
+                !(opponent->IsCreature() && opponent->ToCreature()->isWorldBoss()) &&
                 dist > 5 && dist < 30)
             {
                 me->CastSpell(opponent, GetSpell(LEAP_1), false);
@@ -141,9 +141,9 @@ public:
         {
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
-            bot_pet_ai::DamageDealt(victim, damage, damageType);
+            bot_pet_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override

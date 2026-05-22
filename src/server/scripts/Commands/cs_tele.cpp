@@ -1,26 +1,19 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
-/* ScriptData
-Name: tele_commandscript
-%Complete: 100
-Comment: All tele related commands
-Category: commandscripts
-EndScriptData */
 
 #include "Chat.h"
 #include "CommandScript.h"
@@ -30,6 +23,7 @@ EndScriptData */
 #include "MapMgr.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "RBAC.h"
 
 using namespace Acore::ChatCommands;
 
@@ -42,22 +36,22 @@ public:
     {
         static ChatCommandTable teleNameNpcCommandTable =
         {
-            { "id",     HandleTeleNameNpcIdCommand,      SEC_GAMEMASTER,    Console::Yes },
-            { "guid",   HandleTeleNameNpcSpawnIdCommand, SEC_GAMEMASTER,    Console::Yes },
-            { "name",   HandleTeleNameNpcNameCommand,    SEC_GAMEMASTER,    Console::Yes },
+            { "id",     HandleTeleNameNpcIdCommand,      rbac::RBAC_PERM_COMMAND_TELE_NAME,    Console::Yes },
+            { "guid",   HandleTeleNameNpcSpawnIdCommand, rbac::RBAC_PERM_COMMAND_TELE_NAME,    Console::Yes },
+            { "name",   HandleTeleNameNpcNameCommand,    rbac::RBAC_PERM_COMMAND_TELE_NAME,    Console::Yes },
         };
         static ChatCommandTable teleNameCommandTable =
         {
             { "npc",    teleNameNpcCommandTable },
-            { "",       HandleTeleNameCommand,           SEC_GAMEMASTER,    Console::Yes },
+            { "",       HandleTeleNameCommand,           rbac::RBAC_PERM_COMMAND_TELE_NAME,    Console::Yes },
         };
         static ChatCommandTable teleCommandTable =
         {
-            { "add",    HandleTeleAddCommand,            SEC_ADMINISTRATOR, Console::No },
-            { "del",    HandleTeleDelCommand,            SEC_ADMINISTRATOR, Console::Yes },
+            { "add",    HandleTeleAddCommand,            rbac::RBAC_PERM_COMMAND_TELE_ADD,     Console::No },
+            { "del",    HandleTeleDelCommand,            rbac::RBAC_PERM_COMMAND_TELE_DEL,     Console::Yes },
             { "name",   teleNameCommandTable },
-            { "group",  HandleTeleGroupCommand,          SEC_GAMEMASTER,    Console::No },
-            { "",       HandleTeleCommand,               SEC_GAMEMASTER,    Console::No }
+            { "group",  HandleTeleGroupCommand,          rbac::RBAC_PERM_COMMAND_TELE_GROUP,   Console::No },
+            { "",       HandleTeleCommand,               rbac::RBAC_PERM_COMMAND_TELE,         Console::No }
         };
         static ChatCommandTable commandTable =
         {
@@ -72,7 +66,7 @@ public:
         if (!player)
             return false;
 
-        if (sObjectMgr->GetGameTele(name))
+        if (sObjectMgr->GetGameTele(name, true))
         {
             handler->SendErrorMessage(LANG_COMMAND_TP_ALREADYEXIST);
             return false;

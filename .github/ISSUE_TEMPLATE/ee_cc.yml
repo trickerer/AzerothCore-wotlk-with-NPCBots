@@ -1,0 +1,21 @@
+name: CC Triage
+description: This template is only used for ChromieCraft
+labels: ["ChromieCraft Generic"]
+body:
+  - type: textarea
+    id: current
+    attributes:
+      label: Triage
+      description: |
+        Paste the issue from ChromieCraft here.
+      value: |
+      
+        Issue linked from CC: 
+
+        Triage Notes: 
+
+        Original Post Below: 
+
+        ---
+    validations:
+      required: true

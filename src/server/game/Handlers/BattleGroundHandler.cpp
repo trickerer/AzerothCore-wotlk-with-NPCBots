@@ -1,22 +1,24 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AreaDefines.h"
 #include "ArenaTeam.h"
 #include "ArenaTeamMgr.h"
+#include "ArenaSeasonMgr.h"
 #include "Battleground.h"
 #include "BattlegroundMgr.h"
 #include "Chat.h"
@@ -33,6 +35,7 @@
 #include "WorldSession.h"
 
 //npcbot
+#include "botconfig.h"
 #include "botdatamgr.h"
 #include "botmgr.h"
 //end npcbot
@@ -50,9 +53,7 @@ void WorldSession::HandleBattlemasterHelloOpcode(WorldPacket& recvData)
     if (!unit->IsBattleMaster())                             // it's not battlemaster
         return;
 
-    // Stop the npc if moving
-    if (uint32 pause = unit->GetMovementTemplate().GetInteractionPauseTimer())
-        unit->PauseMovement(pause);
+    unit->PauseMovementForInteraction();
     unit->SetHomePosition(unit->GetPosition());
 
     BattlegroundTypeId bgTypeId = sBattlegroundMgr->GetBattleMasterBG(unit->GetEntry());
@@ -95,7 +96,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
     }
 
     // chosen battleground type is disabled
-    if (DisableMgr::IsDisabledFor(DISABLE_TYPE_BATTLEGROUND, bgTypeId_, nullptr))
+    if (sDisableMgr->IsDisabledFor(DISABLE_TYPE_BATTLEGROUND, bgTypeId_, nullptr))
     {
         ChatHandler(this).PSendSysMessage(LANG_BG_DISABLED);
         return;
@@ -144,7 +145,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
     // queue result (default ok)
     GroupJoinBattlegroundResult err = GroupJoinBattlegroundResult(bg->GetBgTypeID());
 
-    if (!sScriptMgr->CanJoinInBattlegroundQueue(_player, guid, bgTypeId, joinAsGroup, err) && err <= 0)
+    if (!sScriptMgr->OnPlayerCanJoinInBattlegroundQueue(_player, guid, bgTypeId, joinAsGroup, err) && err <= 0)
     {
         WorldPacket data;
         sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, err);
@@ -166,7 +167,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
         {
             err = ERR_LFG_CANT_USE_BATTLEGROUND;
         }
-        else if (!_player->CanJoinToBattleground()) // has deserter debuff
+        else if (!_player->CanJoinToBattleground(bg)) // has deserter debuff
         {
             err = ERR_GROUP_JOIN_BATTLEGROUND_DESERTERS;
         }
@@ -189,7 +190,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
             err = ERR_BATTLEGROUND_QUEUED_FOR_RATED;
         }
         // don't let Death Knights join BG queues when they are not allowed to be teleported yet
-        else if (_player->IsClass(CLASS_DEATH_KNIGHT, CLASS_CONTEXT_TELEPORT) && _player->GetMapId() == 609 && !_player->IsGameMaster() && !_player->HasSpell(50977))
+        else if (_player->IsClass(CLASS_DEATH_KNIGHT, CLASS_CONTEXT_TELEPORT) && _player->GetMapId() == MAP_EBON_HOLD && !_player->IsGameMaster() && !_player->HasSpell(50977))
         {
             err = ERR_BATTLEGROUND_NONE;
         }
@@ -284,7 +285,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
             {
                 WorldPacket data;
                 sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, err);
-                member->GetSession()->SendPacket(&data);
+                member->SendDirectMessage(&data);
             });
 
             return;
@@ -292,7 +293,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
 
         isPremade = (grp->GetMembersCount() >= bg->GetMinPlayersPerTeam() && bgTypeId != BATTLEGROUND_RB);
         //npcbot: check premade for bots
-        if (isPremade && !BotMgr::IsNpcBotsPremadeEnabled() && grp->GetFirstBotMember() != nullptr)
+        if (isPremade && !BotCfg::IsNpcBotsPremadeEnabled() && grp->GetFirstBotMember() != nullptr)
             isPremade = false;
         //end npcbot
         uint32 avgWaitTime = 0;
@@ -306,10 +307,10 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recvData)
 
             // send status packet
             sBattlegroundMgr->BuildBattlegroundStatusPacket(&data, bg, member->AddBattlegroundQueueId(bgQueueTypeId), STATUS_WAIT_QUEUE, avgWaitTime, 0, 0, TEAM_NEUTRAL);
-            member->GetSession()->SendPacket(&data);
+            member->SendDirectMessage(&data);
 
             sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, err);
-            member->GetSession()->SendPacket(&data);
+            member->SendDirectMessage(&data);
 
             sScriptMgr->OnPlayerJoinBG(member);
         });
@@ -510,7 +511,7 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recvData)
     BattlegroundQueueTypeId bgQueueTypeId = BattlegroundMgr::BGQueueTypeId(bgTypeId, arenaType);
     BattlegroundQueue& bgQueue = sBattlegroundMgr->GetBattlegroundQueue(bgQueueTypeId);
 
-    if (!sScriptMgr->CanBattleFieldPort(_player, arenaType, bgTypeId, action))
+    if (!sScriptMgr->OnPlayerCanBattleFieldPort(_player, arenaType, bgTypeId, action))
         return;
 
     // get group info from queue
@@ -560,7 +561,7 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recvData)
     if (action == 1 && ginfo.ArenaType == 0)
     {
         // can't join with deserter, check it here right before joining to be sure
-        if (!_player->CanJoinToBattleground())
+        if (!_player->CanJoinToBattleground(bg))
         {
             WorldPacket data;
             sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, ERR_GROUP_JOIN_BATTLEGROUND_DESERTERS);
@@ -665,11 +666,11 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recvData)
                 CharacterDatabase.Execute(stmt);
             }
 
-            sScriptMgr->OnBattlegroundDesertion(_player, BG_DESERTION_TYPE_LEAVE_QUEUE);
+            sScriptMgr->OnPlayerBattlegroundDesertion(_player, BG_DESERTION_TYPE_LEAVE_QUEUE);
         }
 
         if (bg->isArena() && (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN))
-            sScriptMgr->OnBattlegroundDesertion(_player, ARENA_DESERTION_TYPE_LEAVE_QUEUE);
+            sScriptMgr->OnPlayerBattlegroundDesertion(_player, ARENA_DESERTION_TYPE_LEAVE_QUEUE);
     }
 }
 
@@ -808,7 +809,7 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPacket& recvData)
     }
 
     // arenas disabled
-    if (DisableMgr::IsDisabledFor(DISABLE_TYPE_BATTLEGROUND, BATTLEGROUND_AA, nullptr))
+    if (sDisableMgr->IsDisabledFor(DISABLE_TYPE_BATTLEGROUND, BATTLEGROUND_AA, nullptr))
     {
         ChatHandler(this).PSendSysMessage(LANG_ARENA_DISABLED);
         return;
@@ -834,13 +835,28 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPacket& recvData)
     // queue result (default ok)
     GroupJoinBattlegroundResult err = GroupJoinBattlegroundResult(bgt->GetBgTypeID());
 
-    if (!sScriptMgr->CanJoinInArenaQueue(_player, guid, arenaslot, bgTypeId, asGroup, isRated, err) && err <= 0)
+    if (!sScriptMgr->OnPlayerCanJoinInArenaQueue(_player, guid, arenaslot, bgTypeId, asGroup, isRated, err) && err <= 0)
     {
         WorldPacket data;
         sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, err);
         SendPacket(&data);
         return;
     }
+
+    //npcbot
+    bool have_bots_in_group = false;
+    if (_player->GetGroup() && _player->HaveBot())
+    {
+        for (auto const& mslot : _player->GetGroup()->GetMemberSlots())
+        {
+            if (mslot.guid.IsCreature() && _player->GetBotMgr()->GetBot(mslot.guid))
+            {
+                have_bots_in_group = true;
+                break;
+            }
+        }
+    }
+    //end npcbot
 
     BattlegroundQueueTypeId bgQueueTypeId = BattlegroundMgr::BGQueueTypeId(bgTypeId, arenatype);
     BattlegroundQueue& bgQueue = sBattlegroundMgr->GetBattlegroundQueue(bgQueueTypeId);
@@ -875,6 +891,16 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPacket& recvData)
         if (!_player->HasFreeBattlegroundQueueId())
             return;
 
+        //npcbot: do not allow entering as group if there are bots in group
+        if (have_bots_in_group)
+        {
+            WorldPacket data;
+            sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, ERR_BATTLEGROUND_JOIN_FAILED);
+            _player->SendDirectMessage(&data);
+            return;
+        }
+        //end npcbot
+
         GroupQueueInfo* ginfo = bgQueue.AddGroup(_player, nullptr, bgTypeId, bracketEntry, arenatype, isRated != 0, false, arenaRating, matchmakerRating, ateamId, previousOpponents);
         uint32 avgWaitTime = bgQueue.GetAverageQueueWaitTime(ginfo);
         uint32 queueSlot = _player->AddBattlegroundQueueId(bgQueueTypeId);
@@ -899,7 +925,7 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPacket& recvData)
         if (isRated)
         {
             // pussywizard: for rated matches check if season is in progress!
-            if (!sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS))
+            if (sArenaSeasonMgr->GetSeasonState() == ARENA_SEASON_STATE_DISABLED)
                 return;
 
             ateamId = _player->GetArenaTeamId(arenaslot);
@@ -911,6 +937,16 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPacket& recvData)
                 SendNotInArenaTeamPacket(arenatype);
                 return;
             }
+
+            //npcbot: do not allow bots in rated matches
+            if (have_bots_in_group)
+            {
+                WorldPacket data;
+                sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, ERR_BATTLEGROUND_JOIN_TIMED_OUT);
+                _player->SendDirectMessage(&data);
+                return;
+            }
+            //end npcbot
 
             // get team rating for queueing
             arenaRating = at->GetRating();
@@ -964,7 +1000,7 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPacket& recvData)
             if (err <= 0)
             {
                 sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, err);
-                member->GetSession()->SendPacket(&data);
+                member->SendDirectMessage(&data);
                 continue;
             }
 
@@ -972,14 +1008,30 @@ void WorldSession::HandleBattlemasterJoinArena(WorldPacket& recvData)
 
             // send status packet
             sBattlegroundMgr->BuildBattlegroundStatusPacket(&data, bgt, queueSlot, STATUS_WAIT_QUEUE, avgWaitTime, 0, arenatype, TEAM_NEUTRAL, isRated);
-            member->GetSession()->SendPacket(&data);
+            member->SendDirectMessage(&data);
 
             sBattlegroundMgr->BuildGroupJoinedBattlegroundPacket(&data, err);
-            member->GetSession()->SendPacket(&data);
+            member->SendDirectMessage(&data);
 
             LOG_DEBUG("bg.battleground", "Battleground: player joined queue for arena as group bg queue type {} bg type {}: {}, NAME {}", bgQueueTypeId, bgTypeId, member->GetGUID().ToString(), member->GetName());
 
             sScriptMgr->OnPlayerJoinArena(member);
+
+            //npcbot: list bots
+            if (!member->HaveBot())
+                continue;
+
+            BotMap const* map = member->GetBotMgr()->GetBotMap();
+            for (BotMap::const_iterator itr = map->begin(); itr != map->end(); ++itr)
+            {
+                Creature const* bot = itr->second;
+                if (!bot || !grp->IsMember(bot->GetGUID()))
+                    continue;
+
+                LOG_DEBUG("bg.battleground", "Battleground: NPCBot joined queue for arena bg queue type {} bg type {}: GUID {}, NAME {} (owner: {})",
+                    bgQueueTypeId, bgTypeId, bot->GetGUID().ToString(), bot->GetName(), member->GetName());
+            }
+            //end npcbot
         }
     }
 

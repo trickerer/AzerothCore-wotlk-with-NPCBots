@@ -1,4 +1,6 @@
 #include "bot_ai.h"
+#include "botdatamgr.h"
+#include "botlogtraits.h"
 #include "botmgr.h"
 #include "bottext.h"
 #include "bottraits.h"
@@ -18,10 +20,10 @@
 #include "World.h"
 /*
 Death Knight NpcBot by Trickerer onlysuffering@gmail.com
-Complete - around 85%
+Complete - around 92%
 Note: Rune system adapted from TC
 TODO: pet related
-Notes: raise dead / army of the dead not working off the bat, summon garg crash, dancing rune weapon crash, need ai workarounds
+Notes: army of the dead is not working off the bat, need ai workaround
 */
 
 enum DeathKnightBaseSpells
@@ -63,10 +65,13 @@ enum DeathKnightBaseSpells
     DEATHCHILL_1                        = 49796,
     HYSTERIA_1                          = 49016,
     HUNGERING_COLD_1                    = 49203,
-    ANTI_MAGIC_ZONE_1                   = 48707,
+    ANTI_MAGIC_ZONE_1                   = 51052,
     VAMPIRIC_BLOOD_1                    = 55233,
     UNBREAKABLE_ARMOR_1                 = 51271,
     BONE_SHIELD_1                       = 49222,
+
+    DANCING_RUNE_DEAPON_1               = 49028,
+    SUMMON_GARGOYLE_1                   = 49206,
 
     BLOOD_PRESENCE_1                    = 48266,
     FROST_PRESENCE_1                    = 48263,
@@ -117,7 +122,6 @@ enum DeathKnightPassives
     EBON_PLAGUEBRINGER                  = 51161,//rank 3
 
 //Other
-    //GLYPH_DANCING_RUNE_WEAPON           = 63330,
     GLYPH_DISEASE                       = 63334,
     GLYPH_CHAINS_OF_ICE                 = 58620,
     GLYPH_UNHOLY_BLIGHT                 = 63332,
@@ -156,25 +160,22 @@ enum DeathKnightSpecial
 
     GLYPH_HEART_STRIKE_DEBUFF           = 58617, //50% move slow
     GLYPH_RUNE_TAP_HEAL                 = 59754,
-    GLYPH_SCOURGE_STRIKE_EFFECT         = 69961
+    GLYPH_SCOURGE_STRIKE_EFFECT         = 69961,
+
+    //NPC_EBON_GARGOYLE                   = 27829,
+    NPC_DANCING_RUNE_WEAPON             = 27893
 };
 
-static const uint32 Deathknight_spells_damage_arr[] =
+static const std::vector<uint32> Deathknight_spells_damage
 { BLOOD_BOIL_1, BLOOD_STRIKE_1, DEATH_AND_DECAY_1, DEATH_COIL_1,DEATH_STRIKE_1,
 FROST_STRIKE_1, HEART_STRIKE_1, HOWLING_BLAST_1, HUNGERING_COLD_1, ICY_TOUCH_1,
 OBLITERATE_1, PESTILENCE_1, PLAGUE_STRIKE_1, RUNE_STRIKE_1, SCOURGE_STRIKE_1 };
-
-static const uint32 Deathknight_spells_cc_arr[] =
+static const std::vector<uint32> Deathknight_spells_cc
 { DEATH_GRIP_1, CHAINS_OF_ICE_1, MIND_FREEZE_1, STRANGULATE_1 };
-
-static const uint32 Deathknight_spells_support_arr[] =
+static const std::vector<uint32> Deathknight_spells_support
 { ANTI_MAGIC_SHELL_1, ANTI_MAGIC_ZONE_1, ARMY_OF_THE_DEAD_1, BLOOD_TAP_1, BONE_SHIELD_1,DARK_COMMAND_1, DEATHCHILL_1,
 DEATH_COIL_1, EMPOWER_RUNE_WEAPON_1, HORN_OF_WINTER_1, HUNGERING_COLD_1,HYSTERIA_1, ICEBOUND_FORTITUDE_1,
 LICHBORNE_1, MARK_OF_BLOOD_1, PATH_OF_FROST_1, PESTILENCE_1, RUNE_TAP_1,UNBREAKABLE_ARMOR_1, VAMPIRIC_BLOOD_1 };
-
-static const std::vector<uint32> Deathknight_spells_damage(FROM_ARRAY(Deathknight_spells_damage_arr));
-static const std::vector<uint32> Deathknight_spells_cc(FROM_ARRAY(Deathknight_spells_cc_arr));
-static const std::vector<uint32> Deathknight_spells_support(FROM_ARRAY(Deathknight_spells_support_arr));
 
 const RuneType runeSlotTypes[MAX_RUNES] =
 {
@@ -249,12 +250,12 @@ public:
             //Freezing Fog
             if (rimeProcTimer > GetLastDiff() && spellInfo->Id == HOWLING_BLAST_1)
             {
-                for (uint8 i = 0; i != RUNE_DEATH; ++i)
+                for (auto i : NPCBots::index_array<uint8, RUNE_DEATH>)
                     runeCost[i] = 0;
             }
             else
             {
-                for (uint8 i = 0; i != RUNE_DEATH; ++i)
+                for (auto i : NPCBots::index_array<uint8, RUNE_DEATH>)
                     runeCost[i] = src->RuneCost[i];
             }
 
@@ -265,7 +266,7 @@ public:
             //str << "Casted " << spellInfo->SpellName[0] << " cost"
             //    << " " << runeCost[0] << " " << runeCost[1] << " " << runeCost[2] << " " << runeCost[3];
 
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+                for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
             {
                 uint8 rune = _runes[i].CurrentRune;
                 if (runeCost[rune] > 0 && _runes[i].Cooldown <= 0)
@@ -292,7 +293,7 @@ public:
             //        if (_runes[j].CurrentRune == i && _runes[j].Cooldown <= 0)
             //            runesLeft[i]++;
             //str << " left" << " " << runesLeft[0] << " " << runesLeft[1] << " " << runesLeft[2] << " " << runesLeft[3];
-            //BotWhisper(str.str().c_str());
+            //BotWhisper(str.view());
 
             me->ModifyPower(POWER_RUNIC_POWER, int32(src->runePowerGain * runicpowerIncomeMult));
 
@@ -358,7 +359,7 @@ public:
 
             Unit* target = nullptr;
 
-            if (master->GetVictim() && master->IsInCombat() && IsMeleeClass(master->GetClass()) &&
+            if (master->GetVictim() && master->IsInCombat() && BotDataMgr::IsMeleeClass(master->GetClass()) &&
                 GetHealthPCT(master) > 60 && me->GetDistance(master) < 30 &&
                 master->getAttackers().empty() && !CCed(master, true) &&
                 !master->GetAuraEffect(SPELL_AURA_MOD_DAMAGE_PERCENT_DONE, SPELLFAMILY_DEATHKNIGHT, 0x20000000, 0x0, 0x0))
@@ -379,7 +380,7 @@ public:
                             me->GetMap() != player->FindMap())
                             continue;
 
-                        if (IsMeleeClass(player->GetClass()) && player->GetVictim() && GetHealthPCT(player) > 60 &&
+                        if (BotDataMgr::IsMeleeClass(player->GetClass()) && player->GetVictim() && GetHealthPCT(player) > 60 &&
                             me->GetDistance(player) < 30 && player->getAttackers().empty() && !CCed(player, true) &&
                             !player->GetAuraEffect(SPELL_AURA_MOD_DAMAGE_PERCENT_DONE, SPELLFAMILY_DEATHKNIGHT, 0x20000000, 0x0, 0x0))
                         {
@@ -390,11 +391,9 @@ public:
                         if (!player->HaveBot())
                             continue;
 
-                        BotMap const* map = player->GetBotMgr()->GetBotMap();
-                        for (BotMap::const_iterator it = map->begin(); it != map->end(); ++it)
+                        for (auto const& [_, bot] : *player->GetBotMgr()->GetBotMap())
                         {
-                            Creature* bot = it->second;
-                            if (IsMeleeClass(bot->GetBotClass()) && bot->GetVictim() &&
+                            if (BotDataMgr::IsMeleeClass(bot->GetBotClass()) && bot->GetVictim() &&
                                 bot->GetBotAI()->HasRole(BOT_ROLE_DPS) && !bot->GetBotAI()->HasRole(BOT_ROLE_RANGED) &&
                                 GetHealthPCT(bot) > 60 && me->GetDistance(bot) < 30 && !CCed(bot, true) &&
                                 !bot->GetAuraEffect(SPELL_AURA_MOD_DAMAGE_PERCENT_DONE, SPELLFAMILY_DEATHKNIGHT, 0x20000000, 0x0, 0x0))
@@ -417,7 +416,7 @@ public:
 
             if (target && doCast(target, GetSpell(HYSTERIA_1)))
             {
-                if (target->GetTypeId() == TYPEID_PLAYER)
+                if (target->IsPlayer())
                     ReportSpellCast(HYSTERIA_1, LocalizedNpcText(target->ToPlayer(), BOT_TEXT__ON_YOU), target->ToPlayer());
                 //if (target != master)
                 //{
@@ -471,7 +470,7 @@ public:
             if (presencetimer > diff || IAmFree() || IsCasting() || Rand() > 30)
                 return;
 
-            uint8 newpresence = IsTank() ? DEATH_KNIGHT_FROST_PRESENCE : DEATH_KNIGHT_BLOOD_PRESENCE;
+            uint8 newpresence = IsTank() ? DEATH_KNIGHT_FROST_PRESENCE : GetSpec() == BOT_SPEC_DK_UNHOLY ? DEATH_KNIGHT_UNHOLY_PRESENCE : DEATH_KNIGHT_BLOOD_PRESENCE;
             if (_presence == newpresence)
             {
                 presencetimer = 5000;
@@ -488,6 +487,11 @@ public:
                 if (doCast(me, BLOOD_PRESENCE_1))
                     return;
             }
+            else if (newpresence == DEATH_KNIGHT_UNHOLY_PRESENCE && HaveRunes(UNHOLY_PRESENCE_1))
+            {
+                if (doCast(me, UNHOLY_PRESENCE_1))
+                    return;
+            }
 
             presencetimer = 1000; //fail
         }
@@ -495,7 +499,7 @@ public:
         void BreakCC(uint32 diff) override
         {
             if (IsSpellReady(LICHBORNE_1, diff, false) && Rand() < 45 &&
-                me->HasAuraWithMechanic((1<<MECHANIC_CHARM)|(1<<MECHANIC_FEAR)|(1<<MECHANIC_SLEEP)))
+                me->HasAuraWithMechanic((1u<<MECHANIC_CHARM)|(1u<<MECHANIC_FEAR)|(1u<<MECHANIC_SLEEP)))
             {
                 if (doCast(me, GetSpell(LICHBORNE_1)))
                     return;
@@ -509,20 +513,16 @@ public:
             if (Rand() > 35)
                 return;
 
-            if (IsSpellReady(STRANGULATE_1, diff) && me->IsInCombat() && HaveRunes(STRANGULATE_1))
-            {
-                Unit* u = FindCastingTarget(CalcSpellMaxRange(STRANGULATE_1), 0, STRANGULATE_1);
-                if (u && doCast(u, GetSpell(STRANGULATE_1)))
-                    return;
-            }
+            if (IsSpellReady(STRANGULATE_1, diff, false) && me->IsInCombat() && HaveRunes(STRANGULATE_1) && !HasQueuedSpellAction(STRANGULATE_1))
+                if (Unit const* target = FindCastingTarget(CalcSpellMaxRange(STRANGULATE_1), 0, STRANGULATE_1))
+                    if (EnqueueCounterSpellAction(target->GetGUID(), STRANGULATE_1, true))
+                        return;
 
-            Unit* target = me->GetVictim();
-            if (IsSpellReady(MIND_FREEZE_1, diff, false) && target && me->GetDistance(target) < 5 &&
-                runicpower >= rcost(MIND_FREEZE_1) && target->IsNonMeleeSpellCast(false,false,true))
-            {
-                if (doCast(me->GetVictim(), GetSpell(MIND_FREEZE_1)))
-                    getpower();
-            }
+            Unit const* target = me->GetVictim();
+            if (IsSpellReady(MIND_FREEZE_1, diff, false) && target && !HasQueuedSpellAction(STRANGULATE_1) &&
+                me->GetDistance(target) < 5 && runicpower >= rcost(MIND_FREEZE_1) && target->IsNonMeleeSpellCast(false,false,true))
+                if (EnqueueCounterSpellAction(target->GetGUID(), MIND_FREEZE_1, true))
+                    return;
         }
 
         void UpdateAI(uint32 diff) override
@@ -671,6 +671,7 @@ public:
             }
             //LICHBORNE + DEATH COIL
             if ((me->GetCreatureType() == CREATURE_TYPE_UNDEAD || IsSpellReady(LICHBORNE_1, diff, false)) &&
+                (IAmFree() || IsTank() || master->GetBotMgr()->GetNpcBotsCountByRole(BOT_ROLE_HEAL) == 0) &&
                 IsSpellReady(DEATH_COIL_1, diff) && Rand() < 45 && GetHealthPCT(me) < 80 && runicpower >= rcost(DEATH_COIL_1))
             {
                 if (me->GetCreatureType() == CREATURE_TYPE_UNDEAD || doCast(me, GetSpell(LICHBORNE_1)))
@@ -698,7 +699,7 @@ public:
             if (IsSpellReady(MARK_OF_BLOOD_1, diff) && u && Rand() < 55 && dist < 30 && HaveRunes(MARK_OF_BLOOD_1) &&
                 IsInBotParty(u) && GetHealthPCT(u) < 75 && u->GetDistance(mytar) < 10 &&
                 mytar->GetHealth() > me->GetMaxHealth() / 4 * (1 + mytar->getAttackers().size()) &&
-                (u == me || IsTank(u) || u->GetTypeId() == TYPEID_PLAYER) &&
+                (u == me || IsTank(u) || u->IsPlayer()) &&
                 !mytar->GetDummyAuraEffect(SPELLFAMILY_DEATHKNIGHT, 2285, 0))
             {
                 if (doCast(mytar, GetSpell(MARK_OF_BLOOD_1)))
@@ -713,12 +714,12 @@ public:
 
             //DARK COMMAND
             if (IsSpellReady(DARK_COMMAND_1, diff, false) && u && u != me && dist < 30 &&
-                mytar->GetTypeId() == TYPEID_UNIT && !mytar->IsControlledByPlayer() && Rand() < 50 &&
+                mytar->IsCreature() && !mytar->IsControlledByPlayer() && Rand() < 50 &&
                 !CCed(mytar) && !mytar->HasAuraType(SPELL_AURA_MOD_TAUNT) &&
                 (!IsTank(u) || (IsTank() && GetHealthPCT(me) > 67 &&
                 (GetHealthPCT(u) < 30 || (IsOffTank() && !IsOffTank(u) && IsPointedOffTankingTarget(mytar)) ||
                 (!IsOffTank() && IsOffTank(u) && IsPointedTankingTarget(mytar))))) &&
-                ((!IsTankingClass(u->GetClass()) && GetHealthPCT(u) < 80) || IsTank()) &&
+                ((!BotDataMgr::IsTankingClass(u->GetClass()) && GetHealthPCT(u) < 80) || IsTank()) &&
                 IsInBotParty(u))
             {
                 if (doCast(mytar, GetSpell(DARK_COMMAND_1)))
@@ -727,7 +728,7 @@ public:
             //DARK COMMAND 2 (distant)
             if (IsSpellReady(DARK_COMMAND_1, diff, false) && !IAmFree() && u == me && Rand() < 30 && IsTank() &&
                 (IsOffTank() || master->GetBotMgr()->GetNpcBotsCountByRole(BOT_ROLE_TANK_OFF) == 0) &&
-                !(me->GetLevel() >= 40 && mytar->GetTypeId() == TYPEID_UNIT &&
+                !(me->GetLevel() >= 40 && mytar->IsCreature() &&
                 (mytar->ToCreature()->IsDungeonBoss() || mytar->ToCreature()->isWorldBoss())))
             {
                 if (Unit* tUnit = FindDistantTauntTarget())
@@ -765,9 +766,9 @@ public:
 
             //CHAINS OF ICE
             if (IsSpellReady(CHAINS_OF_ICE_1, diff) && Rand() < 65 && dist < CalcSpellMaxRange(CHAINS_OF_ICE_1) && mytar->isMoving() &&
-                !(mytar->GetTypeId() == TYPEID_UNIT && (mytar->ToCreature()->GetCreatureTemplate()->MechanicImmuneMask & (1<<(MECHANIC_SNARE-1)))) &&
+                !(mytar->IsCreature() && (mytar->ToCreature()->HasMechanicTemplateImmunity(1u<<(MECHANIC_SNARE-1)))) &&
                 HaveRunes(CHAINS_OF_ICE_1) && !CCed(mytar, true) && (!u || (!IsTank(u) && IsInBotParty(u))) &&
-                !mytar->HasAuraWithMechanic(1<<MECHANIC_SNARE))
+                !mytar->HasAuraWithMechanic(1u<<MECHANIC_SNARE))
             {
                 if (doCast(mytar, GetSpell(CHAINS_OF_ICE_1)))
                     return;
@@ -786,11 +787,12 @@ public:
             }
 
             //Diseases in general
-            bool noDiseases = (mytar->GetTypeId() == TYPEID_UNIT && (mytar->ToCreature()->GetCreatureTemplate()->MechanicImmuneMask & (1<<(MECHANIC_INFECTED-1))));
+            bool noDiseases = mytar->IsCreature() && (mytar->ToCreature()->HasMechanicTemplateImmunity(1u<<(MECHANIC_INFECTED-1)));
             AuraEffect const* blop = noDiseases ? nullptr : mytar->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DEATHKNIGHT, 0x0, 0x2000000, 0x0, me->GetGUID());
             AuraEffect const* frof = noDiseases ? nullptr : mytar->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DEATHKNIGHT, 0x0, 0x4000000, 0x0, me->GetGUID());
+            AuraEffect const* ebop = (noDiseases || GetSpec() != BOT_SPEC_DK_UNHOLY) ? nullptr : mytar->GetAuraEffect(SPELL_AURA_LINKED, SPELLFAMILY_DEATHKNIGHT, 0x0, 0x800, 0x0, me->GetGUID());
 
-            auto [can_do_frost, can_do_shadow, can_do_physical] = CanAffectVictimBools(mytar, SPELL_SCHOOL_FROST, SPELL_SCHOOL_SHADOW, SPELL_SCHOOL_NORMAL);
+            auto [can_do_nature, can_do_frost, can_do_shadow, can_do_physical] = CanAffectVictimBools(mytar, SPELL_SCHOOL_NATURE, SPELL_SCHOOL_FROST, SPELL_SCHOOL_SHADOW, SPELL_SCHOOL_NORMAL);
 
             //DISEASE SECTION
 
@@ -808,11 +810,11 @@ public:
                     std::list<Unit*> targets;
                     GetNearbyTargetsList(targets, 13.f, 0, mytar);
                     uint8 count = 0;
-                    for (std::list<Unit*>::const_iterator itr = targets.begin(); itr != targets.end(); ++itr)
+                    for (Unit const* u : targets)
                     {
                         //check existing blop and frof
-                        if (!(*itr)->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DEATHKNIGHT, 0x0, 0x2000000, 0x0, me->GetGUID()) ||
-                            !(*itr)->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DEATHKNIGHT, 0x0, 0x4000000, 0x0, me->GetGUID()))
+                        if (!u->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DEATHKNIGHT, 0x0, 0x2000000, 0x0, me->GetGUID()) ||
+                            !u->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DEATHKNIGHT, 0x0, 0x4000000, 0x0, me->GetGUID()))
                             if (++count > 1)
                                 break;
                     }
@@ -841,6 +843,23 @@ public:
             }
 
             //END DISEASE SECTION
+
+            //COMBAT SUMMONS SECTION
+
+            //SUMMON GARGOYLE
+            if (IsSpellReady(SUMMON_GARGOYLE_1, diff) && can_do_nature && Rand() < 60 && dist < 30 &&
+                (IAmFree() || mytar->GetHealth() > me->GetMaxHealth() / 4) && runicpower >= rcost(SUMMON_GARGOYLE_1))
+            {
+                if (doCast(mytar, GetSpell(SUMMON_GARGOYLE_1)))
+                    return;
+            }
+            //DANCING RUNE WEAPON
+            if (IsSpellReady(DANCING_RUNE_DEAPON_1, diff) && can_do_physical && (noDiseases || (blop && frof)) && Rand() < 60 && dist < 15 &&
+                (IAmFree() || mytar->GetHealth() > me->GetHealth() / 4) && runicpower >= rcost(DANCING_RUNE_DEAPON_1))
+            {
+                if (doCast(mytar, GetSpell(DANCING_RUNE_DEAPON_1)))
+                    return;
+            }
 
             //MELEE SECTION
 
@@ -903,7 +922,7 @@ public:
                     return;
             }
             //OBLITERATE
-            if (IsSpellReady(OBLITERATE_1, diff) && (noDiseases || (blop && frof)) && HaveRunes(OBLITERATE_1))
+            if (IsSpellReady(OBLITERATE_1, diff) && GetSpec() == BOT_SPEC_DK_FROST && blop && frof && HaveRunes(OBLITERATE_1))
             {
                 //DEATHCHILL
                 if (IsSpellReady(DEATHCHILL_1, diff, false) && doCast(me, GetSpell(DEATHCHILL_1)))
@@ -918,18 +937,18 @@ public:
                 if (doCast(mytar, GetSpell(HEART_STRIKE_1)))
                     return;
             }
+            //SCOURGE STRIKE unused
+            if (IsSpellReady(SCOURGE_STRIKE_1, diff) && blop && frof && ebop && HaveRunes(SCOURGE_STRIKE_1))
+            {
+                if (doCast(mytar, GetSpell(SCOURGE_STRIKE_1)))
+                    return;
+            }
             //BLOOD STRIKE
             if (IsSpellReady(BLOOD_STRIKE_1, diff) && (noDiseases || (blop && frof)) && HaveRunes(BLOOD_STRIKE_1))
             {
                 if (doCast(mytar, GetSpell(BLOOD_STRIKE_1)))
                     return;
             }
-            //SCOURGE STRIKE unused
-            //if (IsSpellReady(SCOURGE_STRIKE_1, diff) && (noDiseases || (blop && frof)) && HaveRunes(SCOURGE_STRIKE_1))
-            //{
-            //    if (doCast(mytar, GetSpell(SCOURGE_STRIKE_1)))
-            //        return;
-            //}
 
             //END DISEASE SECTION
 
@@ -1079,7 +1098,7 @@ public:
                 pctbonus += 0.1f;
 
             //Glyph of Blood Strike: 20% bonus damage for Blood Strike on snared targets
-            if (baseId == BLOOD_STRIKE_1 && damageinfo.target->HasAuraWithMechanic(1<<MECHANIC_SNARE))
+            if (baseId == BLOOD_STRIKE_1 && damageinfo.target->HasAuraWithMechanic(1u<<MECHANIC_SNARE))
                 pctbonus += 0.2f;
             //Glyph of Death Strike: 1% bonus damage for every runic power point (max 25) for Death Strike
             if (baseId == DEATH_STRIKE_1 && runicpower >= 10)
@@ -1476,7 +1495,7 @@ public:
                     baseThreat += threatEntry->flatMod;
 
                     if (baseThreat)
-                        target->GetThreatMgr().AddThreat(me, baseThreat * 6.f, spell->GetSchoolMask(), spell);
+                        target->GetThreatMgr().AddThreat(me, baseThreat * 6.f, spell);
                 }
             }
 
@@ -1630,7 +1649,7 @@ public:
             OnSpellHit(caster, spell);
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
             if (victim == me)
                 return;
@@ -1650,7 +1669,7 @@ public:
                 }
             }
 
-            bot_ai::DamageDealt(victim, damage, damageType);
+            bot_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override
@@ -1697,27 +1716,33 @@ public:
             botPet = myPet;
         }
 
-        void UnsummonAll(bool savePets = true) override
+        void JustSummoned(Creature* summon) override
         {
-            UnsummonPet(savePets);
-        }
-
-        void SummonedCreatureDies(Creature* /*summon*/, Unit* /*killer*/) override
-        {
-            //TC_LOG_ERROR("entities.unit", "SummonedCreatureDies: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
-            //if (summon == botPet)
-            //    botPet = nullptr;
+            switch (summon->GetEntry())
+            {
+                case NPC_DANCING_RUNE_WEAPON:
+                case NPC_EBON_GARGOYLE:
+                    summon->SetCreator(me);
+                    break;
+                default:
+                    break;
+            }
         }
 
         void SummonedCreatureDespawn(Creature* summon) override
         {
             //all hunter bot pets despawn at death or manually (gossip, teleport, etc.)
-            //TC_LOG_ERROR("entities.unit", "SummonedCreatureDespawn: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
+            //BOT_LOG_ERROR("entities.unit", "SummonedCreatureDespawn: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
             if (summon == botPet)
             {
                 petSummonTimer = 30000;
                 botPet = nullptr;
             }
+        }
+
+        void UnsummonAll(bool savePets = true) override
+        {
+            UnsummonPet(savePets);
         }
 
         uint32 GetAIMiscValue(uint32 data) const override
@@ -1815,6 +1840,7 @@ public:
   /*Talent*/lvl >= 61 && isBloo ? InitSpellMap(HYSTERIA_1) : RemoveSpell(HYSTERIA_1);
   /*Talent*/lvl >= 62 && isBloo ? InitSpellMap(VAMPIRIC_BLOOD_1) : RemoveSpell(VAMPIRIC_BLOOD_1);
   /*Talent*/lvl >= 63 && isBloo ? InitSpellMap(HEART_STRIKE_1) : RemoveSpell(HEART_STRIKE_1);
+  /*Talent*/lvl >= 65 && isBloo ? InitSpellMap(DANCING_RUNE_DEAPON_1) : RemoveSpell(DANCING_RUNE_DEAPON_1);
 
   /*Talent*/lvl >= 57 ? InitSpellMap(LICHBORNE_1) : RemoveSpell(LICHBORNE_1);
   /*Talent*/lvl >= 59 && isFros ? InitSpellMap(DEATHCHILL_1) : RemoveSpell(DEATHCHILL_1);
@@ -1826,6 +1852,7 @@ public:
   /*Talent*/lvl >= 61 && isUnho ? InitSpellMap(ANTI_MAGIC_ZONE_1) : RemoveSpell(ANTI_MAGIC_ZONE_1);
   /*Talent*/lvl >= 62 && isUnho ? InitSpellMap(BONE_SHIELD_1) : RemoveSpell(BONE_SHIELD_1);
   /*Talent*/lvl >= 63 && isUnho ? InitSpellMap(SCOURGE_STRIKE_1) : RemoveSpell(SCOURGE_STRIKE_1);
+  /*Talent*/lvl >= 65 && isUnho ? InitSpellMap(SUMMON_GARGOYLE_1) : RemoveSpell(SUMMON_GARGOYLE_1);
 
             InitSpellMap(BLOOD_PRESENCE_1, true);
             InitSpellMap(FROST_PRESENCE_1, true);
@@ -1882,7 +1909,6 @@ public:
             RefreshAura(WANDERING_PLAGUE, isUnho && level >= 63 ? 1 : 0);
             RefreshAura(EBON_PLAGUEBRINGER, isUnho && level >= 63 ? 1 : 0);
 
-            //RefreshAura(GLYPH_DANCING_RUNE_WEAPON, level >= 60 ? 1 : 0);
             RefreshAura(GLYPH_DISEASE);
             RefreshAura(GLYPH_CHAINS_OF_ICE);
             RefreshAura(GLYPH_UNHOLY_BLIGHT, level >= 60 ? 1 : 0);
@@ -1909,6 +1935,8 @@ public:
                 case VAMPIRIC_BLOOD_1:
                 case HYSTERIA_1:
                     return true;
+                case DEATH_COIL_1:
+                    return master->GetCreatureType() == CREATURE_TYPE_UNDEAD;
                 default:
                     return false;
             }
@@ -1962,19 +1990,19 @@ public:
             if (rimeProcTimer > GetLastDiff() && spellInfo->Id == HOWLING_BLAST_1)
                 return true;
 
-            for (uint8 i = 0; i != RUNE_DEATH; ++i)
+            for (auto i : NPCBots::index_array<uint8, RUNE_DEATH>)
                 runeCost[i] = src->RuneCost[i];
 
             runeCost[RUNE_DEATH] = MAX_RUNES;
 
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
             {
                 uint8 rune = _runes[i].CurrentRune;
                 if (runeCost[rune] > 0 && _runes[i].Cooldown <= 0)
                     runeCost[rune]--;
             }
 
-            for (uint8 i = 0; i != RUNE_DEATH; ++i)
+            for (auto i : NPCBots::index_array<uint8, RUNE_DEATH>)
                 if (runeCost[i] > 0)
                     runeCost[RUNE_DEATH] += runeCost[i];
 
@@ -1986,7 +2014,7 @@ public:
 
         bool SpendRune(uint8 runetype, bool didHit)
         {
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
             {
                 if (_runes[i].CurrentRune == runetype && _runes[i].Cooldown <= 0)
                 {
@@ -2008,7 +2036,7 @@ public:
         uint8 GetCooledRunesCount(uint8 runetype) const
         {
             uint8 count = 0;
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
                 if (_runes[i].BaseRune == runetype && _runes[i].Cooldown > 0)
                     ++count;
 
@@ -2018,7 +2046,7 @@ public:
         uint8 GetCooledRunesCount() const
         {
             uint8 count = 0;
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
                 if (_runes[i].Cooldown > 0)
                     ++count;
 
@@ -2028,7 +2056,7 @@ public:
         uint32 GetTotalRunesCooldown() const
         {
             uint32 totalCd = 0;
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
                 totalCd += std::max<int32>(_runes[i].Cooldown, 0);
 
             return totalCd;
@@ -2036,7 +2064,7 @@ public:
 
         void ConvertRune(uint8 runetype)
         {
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
             {
                 if (_runes[i].CurrentRune == runetype)
                 {
@@ -2048,13 +2076,13 @@ public:
 
         void ActivateAllRunes()
         {
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
                 _runes[i].Cooldown = std::min<int32>(_runes[i].Cooldown, me->IsInCombat() ? -1 : 0);
         }
 
         void InitRunes()
         {
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
             {
                 _runes[i].BaseRune = runeSlotTypes[i];
                 _runes[i].CurrentRune = _runes[i].BaseRune;
@@ -2064,7 +2092,7 @@ public:
 
         void RuneTimers(uint32 diff)
         {
-            for (uint8 i = 0; i != MAX_RUNES; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_RUNES>)
             {
                 int32 &cd = _runes[i].Cooldown;
                 if (me->IsInCombat())
@@ -2102,11 +2130,10 @@ public:
 
             for (AuraType const* itr = botDiseaseAuraTypes; *itr != SPELL_AURA_NONE; ++itr)
             {
-                Unit::AuraEffectList const& disAuras = unit->GetAuraEffectsByType(*itr);
-                for (Unit::AuraEffectList::const_iterator ditr = disAuras.begin(); ditr != disAuras.end(); ++ditr)
+                for (AuraEffect const* aeff : unit->GetAuraEffectsByType(*itr))
                 {
                     // Get auras with disease dispel type by caster
-                    if ((*ditr)->GetSpellInfo()->Dispel == DISPEL_DISEASE)
+                    if (aeff->GetSpellInfo()->Dispel == DISPEL_DISEASE)
                         return true;
                 }
             }

@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -22,8 +22,8 @@
 #include "DatabaseEnv.h"
 #include "ItemTemplate.h"
 #include "LootMgr.h"
+#include "SpawnData.h"
 #include "Unit.h"
-#include "World.h"
 #include <list>
 
 #define MAX_AGGRO_RESET_TIME 10 // in seconds
@@ -56,7 +56,7 @@ enum CreatureFlagsExtra : uint32
     CREATURE_FLAG_EXTRA_GHOST_VISIBILITY                = 0x00000400,   // creature will only be visible to dead players
     CREATURE_FLAG_EXTRA_USE_OFFHAND_ATTACK              = 0x00000800,   // creature will use offhand attacks
     CREATURE_FLAG_EXTRA_NO_SELL_VENDOR                  = 0x00001000,   // players can't sell items to this vendor
-    CREATURE_FLAG_EXTRA_IGNORE_COMBAT                   = 0x00002000,
+    CREATURE_FLAG_EXTRA_CANNOT_ENTER_COMBAT             = 0x00002000,   // creature is not allowed to enter combat
     CREATURE_FLAG_EXTRA_WORLDEVENT                      = 0x00004000,   // custom flag for world event creatures (left room for merging)
     CREATURE_FLAG_EXTRA_GUARD                           = 0x00008000,   // Creature is guard
     CREATURE_FLAG_EXTRA_IGNORE_FEIGN_DEATH              = 0x00010000,   // creature ignores feign death
@@ -70,7 +70,7 @@ enum CreatureFlagsExtra : uint32
     CREATURE_FLAG_EXTRA_MODULE                          = 0x01000000,
     CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE            = 0x02000000,   // Prevent creatures from calling for assistance on initial aggro
     CREATURE_FLAG_EXTRA_IGNORE_ALL_ASSISTANCE_CALLS     = 0x04000000,   // Prevents creature from responding to assistance calls
-    CREATURE_FLAG_DONT_OVERRIDE_ENTRY_SAI               = 0x08000000,   // Load both ENTRY and GUID specific SAI
+    CREATURE_FLAG_EXTRA_DONT_OVERRIDE_ENTRY_SAI         = 0x08000000,   // Load both ENTRY and GUID specific SAI
     CREATURE_FLAG_EXTRA_DUNGEON_BOSS                    = 0x10000000,   // creature is a dungeon boss (SET DYNAMICALLY, DO NOT ADD IN DB)
     CREATURE_FLAG_EXTRA_IGNORE_PATHFINDING              = 0x20000000,   // creature ignore pathfinding
     CREATURE_FLAG_EXTRA_IMMUNITY_KNOCKBACK              = 0x40000000,   // creature is immune to knockback effects
@@ -78,8 +78,8 @@ enum CreatureFlagsExtra : uint32
 
     // Masks
     //npcbot
-    CREATURE_FLAG_EXTRA_NPCBOT                          = (CREATURE_FLAG_EXTRA_HARD_RESET | CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE | CREATURE_FLAG_DONT_OVERRIDE_ENTRY_SAI | CREATURE_FLAG_EXTRA_IGNORE_ALL_ASSISTANCE_CALLS),
-    CREATURE_FLAG_EXTRA_NPCBOT_PET                      = (CREATURE_FLAG_EXTRA_HARD_RESET | CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE | CREATURE_FLAG_DONT_OVERRIDE_ENTRY_SAI),
+    CREATURE_FLAG_EXTRA_NPCBOT                          = (CREATURE_FLAG_EXTRA_HARD_RESET | CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE | CREATURE_FLAG_EXTRA_DONT_OVERRIDE_ENTRY_SAI | CREATURE_FLAG_EXTRA_IGNORE_ALL_ASSISTANCE_CALLS),
+    CREATURE_FLAG_EXTRA_NPCBOT_PET                      = (CREATURE_FLAG_EXTRA_HARD_RESET | CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE | CREATURE_FLAG_EXTRA_DONT_OVERRIDE_ENTRY_SAI),
     //end npcbot
 
     CREATURE_FLAG_EXTRA_DB_ALLOWED                      = (0xFFFFFFFF & ~CREATURE_FLAG_EXTRA_DUNGEON_BOSS) // SKIP
@@ -105,18 +105,18 @@ enum class CreatureFlightMovementType : uint8
 
 enum class CreatureChaseMovementType : uint8
 {
-    Run,
-    CanWalk,
-    AlwaysWalk,
+    Run         = 0,
+    CanWalk     = 1,
+    AlwaysWalk  = 2,
 
     Max
 };
 
 enum class CreatureRandomMovementType : uint8
 {
-    Walk,
-    CanRun,
-    AlwaysRun,
+    Walk        = 0,
+    CanRun      = 1,
+    AlwaysRun   = 2,
 
     Max
 };
@@ -208,7 +208,6 @@ struct CreatureTemplate
     float   speed_swim;
     float   speed_flight;
     float   detection_range;                                // Detection Range for Line of Sight aggro
-    float   scale;
     uint32  rank;
     uint32  dmgschool;
     float   DamageModifier;
@@ -221,10 +220,6 @@ struct CreatureTemplate
     uint32  unit_flags2;                                    // enum UnitFlags2 mask values
     uint32  dynamicflags;
     uint32  family;                                         // enum CreatureFamily values (optional)
-    uint32  trainer_type;
-    uint32  trainer_spell;
-    uint32  trainer_class;
-    uint32  trainer_race;
     uint32  type;                                           // enum CreatureType values
     uint32  type_flags;                                     // enum CreatureTypeFlags mask values
     uint32  lootid;
@@ -247,8 +242,7 @@ struct CreatureTemplate
     bool    RacialLeader;
     uint32  movementId;
     bool    RegenHealth;
-    uint32  MechanicImmuneMask;
-    uint8   SpellSchoolImmuneMask;
+    int32   CreatureImmunitiesId;
     uint32  flags_extra;
     uint32  ScriptID;
     WorldPacket queryData; // pussywizard
@@ -328,6 +322,11 @@ struct CreatureBaseStats
     uint32 AttackPower;
     uint32 RangedAttackPower;
     float BaseDamage[MAX_EXPANSIONS];
+    uint32 Strength;
+    uint32 Agility;
+    uint32 Stamina;
+    uint32 Intellect;
+    uint32 Spirit;
 
     // Helpers
 
@@ -387,32 +386,23 @@ typedef std::unordered_map<uint8, EquipmentInfo> EquipmentInfoContainerInternal;
 typedef std::unordered_map<uint32, EquipmentInfoContainerInternal> EquipmentInfoContainer;
 
 // from `creature` table
-struct CreatureData
+struct CreatureData : public SpawnData
 {
-    CreatureData() = default;
+    CreatureData() : SpawnData(SPAWN_TYPE_CREATURE) {}
     uint32 id1{0};                                             // entry in creature_template
     uint32 id2{0};                                             // entry in creature_template
     uint32 id3{0};                                             // entry in creature_template
-    uint16 mapid{0};
-    uint32 phaseMask{0};
     uint32 displayid{0};
     int8 equipmentId{0};
-    float posX{0.0f};
-    float posY{0.0f};
-    float posZ{0.0f};
-    float orientation{0.0f};
     uint32 spawntimesecs{0};
     float wander_distance{0.0f};
     uint32 currentwaypoint{0};
     uint32 curhealth{0};
     uint32 curmana{0};
     uint8 movementType{0};
-    uint8 spawnMask{0};
     uint32 npcflag{0};
     uint32 unit_flags{0};                                      // enum UnitFlags mask values
     uint32 dynamicflags{0};
-    uint32 ScriptId;
-    bool dbData{true};
 };
 
 struct CreatureModelInfo
@@ -523,39 +513,6 @@ struct VendorItemCount
 };
 
 typedef std::list<VendorItemCount> VendorItemCounts;
-
-struct TrainerSpell
-{
-    TrainerSpell()
-    {
-        for (unsigned int & i : learnedSpell)
-            i = 0;
-    }
-
-    uint32 spell{0};
-    uint32 spellCost{0};
-    uint32 reqSkill{0};
-    uint32 reqSkillValue{0};
-    uint32 reqLevel{0};
-    uint32 learnedSpell[3];
-    uint32 reqSpell{0};
-
-    // helpers
-    [[nodiscard]] bool IsCastable() const { return learnedSpell[0] != spell; }
-};
-
-typedef std::unordered_map<uint32 /*spellid*/, TrainerSpell> TrainerSpellMap;
-
-struct TrainerSpellData
-{
-    TrainerSpellData()  = default;
-    ~TrainerSpellData() { spellList.clear(); }
-
-    TrainerSpellMap spellList;
-    uint32 trainerType{0};                                     // trainer type based at trainer spells, can be different from creature_template value.
-    // req. for correct show non-prof. trainers like weaponmaster, allowed values 0 and 2.
-    [[nodiscard]] TrainerSpell const* Find(uint32 spell_id) const;
-};
 
 struct CreatureSpellCooldown
 {

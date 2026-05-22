@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -124,7 +124,7 @@ struct boss_nightbane : public BossAI
         _triggerCountTakeOffWhileFlying = 0;
         _airPhasesCompleted = 0;
 
-        me->SetSpeed(MOVE_RUN, me->GetCreatureTemplate()->speed_run);
+        me->SetSpeed(MOVE_RUN, 2.0f);
         me->SetCanFly(true);
         me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
         me->SetReactState(REACT_PASSIVE);
@@ -172,7 +172,6 @@ struct boss_nightbane : public BossAI
     {
         if (action == ACTION_START_INTRO)
         {
-            me->GetMap()->LoadGrid(-11260.0f, -1771.0f); // load grid at far end of intro path
             me->GetMap()->SetVisibilityRange(DEFAULT_VISIBILITY_INSTANCE + 100.0f); // see nightbane
             me->AddUnitState(UNIT_STATE_IGNORE_PATHFINDING);
             _phase = PHASE_INTRO;
@@ -184,7 +183,7 @@ struct boss_nightbane : public BossAI
                 me->GetMotionMaster()->MoveTakeoff(POINT_INTRO_TAKE_OFF, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ() + 10.0f, 13.99879f);
             }).Schedule(4s, [this](TaskContext /*context*/)
             {
-                me->GetMotionMaster()->MovePath(me->GetEntry()*10, false);
+                me->GetMotionMaster()->MoveWaypoint(me->GetEntry()*10, false);
             });
         }
      }
@@ -300,7 +299,6 @@ struct boss_nightbane : public BossAI
             {
                 me->ClearUnitState(UNIT_STATE_IGNORE_PATHFINDING);
                 me->GetMotionMaster()->MovePoint(POINT_INTRO_LAND, introLandPos);
-                me->SetSpeed(MOVE_RUN, 2.0f);
             }).Schedule(3s, [this](TaskContext /*context*/)
             {
                 me->SetDisableGravity(false);
@@ -402,7 +400,7 @@ struct boss_nightbane : public BossAI
                 {
                     scheduler.Schedule(0s, [this](TaskContext /*context*/)
                     {
-                        me->GetMotionMaster()->MovePath(me->GetEntry()*10+1, false);
+                        me->GetMotionMaster()->MoveWaypoint(me->GetEntry()*10+1, false);
                     });
                 }
                 break;

@@ -8,13 +8,20 @@
 namespace NPCBots
 {
 
+template<typename ST, ST Size>
+inline constexpr std::array<ST, Size> index_array = ([]<typename T, T... I>(std::integer_sequence<T, I...>&&) { return std::array{ I... }; })(std::make_integer_sequence<ST, Size>{});
+
+template<typename ST, ST Size>
+inline constexpr std::array<ST, Size> index_array_rev = ([]<typename T, T... I>(std::integer_sequence<T, I...>&&) {
+    return std::array{ static_cast<ST>((Size - 1) - I)... }; })(std::make_integer_sequence<ST, Size>{});
+
 namespace StringConvert
 {
     template<typename T>
     static std::enable_if_t<std::is_integral_v<T> || std::is_floating_point_v<T>, std::string>
     ToString(T t)
     {
-        return Acore::Impl::StringConvertImpl::For<T>::ToString(t);
+        return Bcore::Impl::StringConvertImpl::For<T>::ToString(t);
     }
 
     template<typename T>
@@ -36,7 +43,7 @@ template<typename T>
 concept Stringable = requires(T t) { StringConvert::ToString(t); };
 
 template<typename... Ts>
-concept LoggableCount = (sizeof...(Ts) <= MAX_BOT_LOG_PARAMS);
+concept LoggableCount = sizeof...(Ts) <= MAX_BOT_LOG_PARAMS;
 
 template<typename... Ts>
 concept LoggableArguments = LoggableCount<Ts...> && (Stringable<Ts> && ...);

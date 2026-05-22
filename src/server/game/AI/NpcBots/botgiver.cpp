@@ -1,5 +1,6 @@
 #include "bot_ai.h"
 #include "botcommon.h"
+#include "botconfig.h"
 #include "botdatamgr.h"
 #include "botgossip.h"
 #include "botspell.h"
@@ -9,6 +10,7 @@
 #include "Creature.h"
 #include "Log.h"
 #include "Player.h"
+#include "RaceMgr.h"
 #include "ScriptedGossip.h"
 #include "ScriptMgr.h"
 /*
@@ -33,7 +35,7 @@ public:
 
         bool OnGossipHello(Player* player, Creature* me) override
         {
-            if (!BotMgr::IsNpcBotModEnabled())
+            if (!BotCfg::IsNpcBotModEnabled())
             {
                 player->PlayerTalkClass->SendCloseGossip();
                 return true;
@@ -53,7 +55,7 @@ public:
         //bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
         bool OnGossipSelect(Player* player, Creature* me, uint32 sender, uint32 action) override
         {
-            if (!BotMgr::IsNpcBotModEnabled())
+            if (!BotCfg::IsNpcBotModEnabled())
             {
                 player->PlayerTalkClass->SendCloseGossip();
                 return true;
@@ -77,13 +79,13 @@ public:
                 {
                     gossipTextId = GOSSIP_BOTGIVER_HIRE;
 
-                    if (player->GetNpcBotsCount() >= BotMgr::GetMaxNpcBots(player->GetLevel()))
+                    if (player->GetNpcBotsCount() >= BotCfg::GetMaxNpcBots(player->GetLevel()))
                     {
                         WhisperTo(player, me, bot_ai::LocalizedNpcText(player, BOT_TEXT_BOTGIVER_TOO_MANY_BOTS).c_str());
                         break;
                     }
 
-                    if (uint32 maxBotsPerAccount = BotMgr::GetMaxAccountBots())
+                    if (uint32 maxBotsPerAccount = BotCfg::GetMaxAccountBots())
                     {
                         uint32 accountBotsCount = BotDataMgr::GetAccountBotsCount(player->GetSession()->GetAccountId());
                         if (accountBotsCount >= maxBotsPerAccount)
@@ -100,13 +102,13 @@ public:
                     std::array<uint32, BOT_CLASS_END> npcbot_count_per_class{ 0 };
 
                     {
-                        std::unique_lock<std::shared_mutex> lock(*BotDataMgr::GetLock());
+                        std::shared_lock lock(*BotDataMgr::GetLock());
                         for (Creature const* bot : BotDataMgr::GetExistingNPCBots())
                         {
-                            if (!bot->IsAlive() || bot->IsTempBot() || bot->IsWandererBot() || bot->GetBotAI()->GetBotOwnerGuid() || bot->HasAura(BERSERK))
+                            if (!bot->IsAlive() || bot->IsTempBot() || bot->IsSummon() || bot->IsWandererBot() || bot->GetBotAI()->GetBotOwnerGuid() || bot->HasAura(BERSERK))
                                 continue;
-                            if (BotMgr::FilterRaces() && bot->GetBotClass() < BOT_CLASS_EX_START && (bot->GetRaceMask() & RACEMASK_ALL_PLAYABLE) &&
-                                !(bot->GetRaceMask() & ((player->GetRaceMask() & RACEMASK_ALLIANCE) ? RACEMASK_ALLIANCE : RACEMASK_HORDE)))
+                            if (BotCfg::FilterRaces() && bot->GetBotClass() < BOT_CLASS_EX_START && (bot->GetRaceMask() & sRaceMgr->GetPlayableRaceMask()) &&
+                                !(bot->GetRaceMask() & ((player->GetRaceMask() & sRaceMgr->GetAllianceRaceMask()) ? sRaceMgr->GetAllianceRaceMask() : sRaceMgr->GetHordeRaceMask())))
                                 continue;
 
                             ++npcbot_count_per_class[bot->GetBotClass()];
@@ -115,17 +117,15 @@ public:
 
                     for (uint8 botclass = BOT_CLASS_WARRIOR; botclass < BOT_CLASS_END; ++botclass)
                     {
-                        if (!BotMgr::IsClassEnabled(botclass))
+                        if (!BotCfg::IsClassEnabled(botclass))
                             continue;
 
-                        if (player->HaveBot() && BotMgr::GetMaxClassBots())
+                        if (player->HaveBot() && BotCfg::GetMaxClassBots())
                         {
-                            uint8 count = 0;
-                            BotMap const* map = player->GetBotMgr()->GetBotMap();
-                            for (BotMap::const_iterator itr = map->begin(); itr != map->end(); ++itr)
-                                if (itr->second->GetBotClass() == botclass)
-                                    ++count;
-                            if (count >= BotMgr::GetMaxClassBots())
+                            uint8 count = static_cast<uint8>(std::ranges::count_if(*player->GetBotMgr()->GetBotMap(), [=](BotMap::value_type const& kv) {
+                                return kv.second->GetBotClass() == botclass;
+                            }));
+                            if (count >= BotCfg::GetMaxClassBots())
                                 continue;
                         }
 
@@ -158,7 +158,7 @@ public:
                             continue;
 
                         std::ostringstream bclass;
-                        bclass << npcbot_count_per_class[botclass] << " " << bot_ai::LocalizedNpcText(player, textId) << " (" << BotMgr::GetNpcBotCostStr(player->GetLevel(), botclass) << ")";
+                        bclass << npcbot_count_per_class[botclass] << " " << bot_ai::LocalizedNpcText(player, textId) << " (" << BotCfg::GetNpcBotCostStr(player->GetLevel(), botclass) << ")";
 
                         AddGossipItemFor(player, GOSSIP_ICON_TALK, bclass.str(), HIRE_CLASS, GOSSIP_ACTION_INFO_DEF + botclass);
 
@@ -179,7 +179,7 @@ public:
 
                     uint8 botclass = action - GOSSIP_ACTION_INFO_DEF;
 
-                    uint32 cost = BotMgr::GetNpcBotCost(player->GetLevel(), botclass);
+                    uint32 cost = BotCfg::GetNpcBotCostHire(player->GetLevel(), botclass);
                     if (!player->HasEnoughMoney(cost))
                     {
                         WhisperTo(player, me, bot_ai::LocalizedNpcText(player, BOT_TEXT_HIREFAIL_COST).c_str());
@@ -191,47 +191,47 @@ public:
                     uint8 availCount = 0;
 
                     //go through bots map to find what bots are available
-                    std::unique_lock<std::shared_mutex> lock(*BotDataMgr::GetLock());
-                    NpcBotRegistry const& allBots = BotDataMgr::GetExistingNPCBots();
-                    for (NpcBotRegistry::const_iterator ci = allBots.begin(); ci != allBots.end(); ++ci)
                     {
-                        Creature const* bot = *ci;
-                        bot_ai const* ai = bot->GetBotAI();
-                        if (bot->GetBotClass() != botclass || !bot->IsAlive() || ai->IsTempBot() || bot->IsWandererBot() || ai->GetBotOwnerGuid() || bot->HasAura(BERSERK))
-                            continue;
-                        if (BotMgr::FilterRaces() && botclass < BOT_CLASS_EX_START && (bot->GetRaceMask() & RACEMASK_ALL_PLAYABLE) &&
-                            !(bot->GetRaceMask() & ((player->GetRaceMask() & RACEMASK_ALLIANCE) ? RACEMASK_ALLIANCE : RACEMASK_HORDE)))
-                            continue;
-
-                        std::ostringstream message1;
-                        message1 << bot_ai::LocalizedNpcText(player, BOT_TEXT_BOTGIVER_WISH_TO_HIRE_) << bot->GetName() << '?';
-
-                        std::ostringstream info_ostr;
-                        uint32 raceTextId;
-                        switch (bot->GetRace())
+                        std::shared_lock lock(*BotDataMgr::GetLock());
+                        for (Creature const* bot : BotDataMgr::GetExistingNPCBots())
                         {
-                            case RACE_HUMAN:        raceTextId = BOT_TEXT_RACE_HUMAN;   break;
-                            case RACE_ORC:          raceTextId = BOT_TEXT_RACE_ORC;     break;
-                            case RACE_DWARF:        raceTextId = BOT_TEXT_RACE_DWARF;   break;
-                            case RACE_NIGHTELF:     raceTextId = BOT_TEXT_RACE_NELF;    break;
-                            case RACE_UNDEAD_PLAYER:raceTextId = BOT_TEXT_RACE_UNDEAD;  break;
-                            case RACE_TAUREN:       raceTextId = BOT_TEXT_RACE_TAUREN;  break;
-                            case RACE_GNOME:        raceTextId = BOT_TEXT_RACE_GNOME;   break;
-                            case RACE_TROLL:        raceTextId = BOT_TEXT_RACE_TROLL;   break;
-                            case RACE_BLOODELF:     raceTextId = BOT_TEXT_RACE_BELF;    break;
-                            case RACE_DRAENEI:      raceTextId = BOT_TEXT_RACE_DRAENEI; break;
-                            default:                raceTextId = BOT_TEXT_RACE_UNKNOWN; break;
+                            bot_ai const* ai = bot->GetBotAI();
+                            if (bot->GetBotClass() != botclass || !bot->IsAlive() || ai->IsTempBot() || bot->IsWandererBot() || bot->IsSummon() || ai->GetBotOwnerGuid() || bot->HasAura(BERSERK))
+                                continue;
+                            if (BotCfg::FilterRaces() && botclass < BOT_CLASS_EX_START && (bot->GetRaceMask() & sRaceMgr->GetPlayableRaceMask()) &&
+                                !(bot->GetRaceMask() & ((player->GetRaceMask() & sRaceMgr->GetAllianceRaceMask()) ? sRaceMgr->GetAllianceRaceMask() : sRaceMgr->GetHordeRaceMask())))
+                                continue;
+
+                            std::ostringstream message1;
+                            message1 << bot_ai::LocalizedNpcText(player, BOT_TEXT_BOTGIVER_WISH_TO_HIRE_) << bot->GetName() << '?';
+
+                            std::ostringstream info_ostr;
+                            uint32 raceTextId;
+                            switch (bot->GetRace())
+                            {
+                                case RACE_HUMAN:        raceTextId = BOT_TEXT_RACE_HUMAN;   break;
+                                case RACE_ORC:          raceTextId = BOT_TEXT_RACE_ORC;     break;
+                                case RACE_DWARF:        raceTextId = BOT_TEXT_RACE_DWARF;   break;
+                                case RACE_NIGHTELF:     raceTextId = BOT_TEXT_RACE_NELF;    break;
+                                case RACE_UNDEAD_PLAYER:raceTextId = BOT_TEXT_RACE_UNDEAD;  break;
+                                case RACE_TAUREN:       raceTextId = BOT_TEXT_RACE_TAUREN;  break;
+                                case RACE_GNOME:        raceTextId = BOT_TEXT_RACE_GNOME;   break;
+                                case RACE_TROLL:        raceTextId = BOT_TEXT_RACE_TROLL;   break;
+                                case RACE_BLOODELF:     raceTextId = BOT_TEXT_RACE_BELF;    break;
+                                case RACE_DRAENEI:      raceTextId = BOT_TEXT_RACE_DRAENEI; break;
+                                default:                raceTextId = BOT_TEXT_RACE_UNKNOWN; break;
+                            }
+                            info_ostr << bot->GetName() << " (" << (
+                                bot->GetGender() == GENDER_MALE ? bot_ai::LocalizedNpcText(player, BOT_TEXT_GENDER_MALE) + ' ' :
+                                bot->GetGender() == GENDER_FEMALE ? bot_ai::LocalizedNpcText(player, BOT_TEXT_GENDER_FEMALE) + ' ' :
+                                "") << bot_ai::LocalizedNpcText(player, raceTextId) << ')';
+
+                            player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TALK, info_ostr.str(),
+                                HIRE_ENTRY, GOSSIP_ACTION_INFO_DEF + bot->GetEntry(), message1.str(), cost, false);
+
+                            if (++availCount >= BOT_GOSSIP_MAX_ITEMS - 1) //back
+                                break;
                         }
-                        info_ostr << bot->GetName() << " (" << (
-                            bot->GetGender() == GENDER_MALE ? bot_ai::LocalizedNpcText(player, BOT_TEXT_GENDER_MALE) + ' ' :
-                            bot->GetGender() == GENDER_FEMALE ? bot_ai::LocalizedNpcText(player, BOT_TEXT_GENDER_FEMALE) + ' ' :
-                            "") << bot_ai::LocalizedNpcText(player, raceTextId) << ')';
-
-                        player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TALK, info_ostr.str(),
-                            HIRE_ENTRY, GOSSIP_ACTION_INFO_DEF + bot->GetEntry(), message1.str(), cost, false);
-
-                        if (++availCount >= BOT_GOSSIP_MAX_ITEMS - 1) //back
-                            break;
                     }
 
                     if (availCount == 0)
@@ -248,7 +248,7 @@ public:
                     if (!bot)
                     {
                         //possible but still
-                        LOG_ERROR("entities.unit", "HIRE_NBOT_ENTRY: bot {} not found!", entry);
+                        BOT_LOG_ERROR("entities.unit", "HIRE_NBOT_ENTRY: bot {} not found!", entry);
                         break;
                     }
 
@@ -256,10 +256,10 @@ public:
                     if (bot->IsInCombat() || !bot->IsAlive() || bot_ai::CCed(bot) ||
                         bot->HasUnitState(UNIT_STATE_CASTING) || ai->GetBotOwnerGuid() || bot->HasAura(BERSERK))
                     {
-                        //TC_LOG_ERROR("entities.unit", "HIRE_NBOT_ENTRY: bot %u (%s) is unavailable all of the sudden!", entry);
+                        //BOT_LOG_ERROR("entities.unit", "HIRE_NBOT_ENTRY: bot %u (%s) is unavailable all of the sudden!", entry);
                         std::ostringstream failMsg;
                         failMsg << bot->GetName() << bot_ai::LocalizedNpcText(player, BOT_TEXT_BOTGIVER__BOT_BUSY);
-                        WhisperTo(player, me, failMsg.str().c_str());
+                        WhisperTo(player, me, failMsg.view());
                         break;
                     }
 
@@ -281,7 +281,7 @@ public:
             return true;
         }
 
-        void WhisperTo(Player* player, Creature* me, char const* message)
+        void WhisperTo(Player* player, Creature* me, std::string_view message)
         {
             me->Whisper(message, LANG_UNIVERSAL, player);
         }

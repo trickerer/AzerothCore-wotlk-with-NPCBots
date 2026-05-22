@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -38,6 +38,7 @@
 #include "Vehicle.h"
 #include "Weather.h"
 #include "WeatherMgr.h"
+#include "WorldState.h"
 #include "WorldStatePackets.h"
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
@@ -58,7 +59,7 @@ void Player::Update(uint32 p_time)
     if (!IsInWorld())
         return;
 
-    sScriptMgr->OnBeforePlayerUpdate(this, p_time);
+    sScriptMgr->OnPlayerBeforeUpdate(this, p_time);
 
     // undelivered mail
     if (m_nextMailDelivereTime && m_nextMailDelivereTime <= GameTime::GetGameTime().count())
@@ -71,17 +72,12 @@ void Player::Update(uint32 p_time)
         m_nextMailDelivereTime = time_t(0);
     }
 
-    // Update cinematic location, if 500ms have passed and we're doing a
-    // cinematic now.
-    _cinematicMgr->m_cinematicDiff += p_time;
-    if (_cinematicMgr->m_cinematicCamera && _cinematicMgr->m_activeCinematicCameraId && GetMSTimeDiffToNow(_cinematicMgr->m_lastCinematicCheck) > CINEMATIC_UPDATEDIFF)
-    {
-        _cinematicMgr->m_lastCinematicCheck = getMSTime();
-        _cinematicMgr->UpdateCinematicLocation(p_time);
-    }
+    // Update cinematic camera (if needed)
+    _cinematicMgr.UpdateCinematic(p_time);
 
     // used to implement delayed far teleports
     SetMustDelayTeleport(true);
+    ProcessSpellQueue();
     Unit::Update(p_time);
     SetMustDelayTeleport(false);
 
@@ -183,8 +179,8 @@ void Player::Update(uint32 p_time)
                         m_swingErrorMsg = 1;
                     }
                 }
-                // 120 degrees of radiant range
-                else if (!HasInArc(2 * M_PI / 3, victim))
+                // 120 degrees of radiant range, if player is not in boundary radius
+                else if (!IsWithinBoundaryRadius(victim) && !HasInArc(2 * float(M_PI) / 3, victim))
                 {
                     setAttackTimer(BASE_ATTACK, 100);
                     if (m_swingErrorMsg != 2) // send single time (client auto repeat)
@@ -206,6 +202,9 @@ void Player::Update(uint32 p_time)
                     // do attack
                     AttackerStateUpdate(victim, BASE_ATTACK);
                     resetAttackTimer(BASE_ATTACK);
+
+                    // Blizzlike: Reset ranged swing timer when performing melee attack
+                    resetAttackTimer(RANGED_ATTACK);
                 }
             }
 
@@ -213,8 +212,8 @@ void Player::Update(uint32 p_time)
             {
                 if (!IsWithinMeleeRange(victim))
                     setAttackTimer(OFF_ATTACK, 100);
-                else if (!HasInArc(2 * M_PI / 3, victim))
-                    setAttackTimer(OFF_ATTACK, 100);
+                else if (!IsWithinBoundaryRadius(victim) && !HasInArc(2 * float(M_PI) / 3, victim))
+                    setAttackTimer(BASE_ATTACK, 100);
                 else
                 {
                     // prevent base and off attack in same time, delay attack at
@@ -225,6 +224,9 @@ void Player::Update(uint32 p_time)
                     // do attack
                     AttackerStateUpdate(victim, OFF_ATTACK);
                     resetAttackTimer(OFF_ATTACK);
+
+                    // Blizzlike: Reset ranged swing timer when performing melee attack
+                    resetAttackTimer(RANGED_ATTACK);
                 }
             }
 
@@ -359,7 +361,7 @@ void Player::Update(uint32 p_time)
 
     // not auto-free ghost from body in instances
     if (m_deathTimer > 0 && !GetMap()->Instanceable() &&
-        !HasAuraType(SPELL_AURA_PREVENT_RESURRECTION))
+        !HasPreventResurectionAura())
     {
         if (p_time >= m_deathTimer)
         {
@@ -398,13 +400,11 @@ void Player::Update(uint32 p_time)
         // != GetCharmGUID())))
         RemovePet(pet, PET_SAVE_NOT_IN_SLOT, true);
 
-    // pussywizard:
     if (m_hostileReferenceCheckTimer <= p_time)
     {
         m_hostileReferenceCheckTimer = 15000;
         if (!GetMap()->IsDungeon())
-            getHostileRefMgr().deleteReferencesOutOfRange(
-                GetVisibilityRange());
+            GetCombatManager().EndCombatBeyondRange(GetVisibilityRange(), true);
     }
     else
         m_hostileReferenceCheckTimer -= p_time;
@@ -467,6 +467,44 @@ void Player::UpdateNextMailTimeAndUnreads()
     }
 }
 
+void Player::UpdateLFGChannel()
+{
+    if (!sWorld->getBoolConfig(CONFIG_RESTRICTED_LFG_CHANNEL))
+        return;
+
+    ChannelMgr* cMgr = ChannelMgr::forTeam(GetTeamId());
+    if (!cMgr)
+        return;
+
+    ChatChannelsEntry const* cce = sChatChannelsStore.LookupEntry(26); /*LookingForGroup*/
+    Channel* cLFG = cMgr->GetJoinChannel(cce->pattern[m_session->GetSessionDbcLocale()], cce->ChannelID);
+    if (!cLFG)
+        return;
+
+    Channel* cUsed = nullptr;
+    for (Channel* channel : m_channels)
+        if (channel && channel->GetChannelId() == cce->ChannelID)
+        {
+            cUsed = cLFG;
+            break;
+        }
+
+    if (IsUsingLfg())
+    {
+        if (cUsed == cLFG)
+            return;
+
+        cLFG->JoinChannel(this, "");
+    }
+    else
+    {
+        if (cLFG != cUsed)
+            return;
+
+        cLFG->LeaveChannel(this, true);
+    }
+}
+
 void Player::UpdateLocalChannels(uint32 newZone)
 {
     // pussywizard: mutex needed (tc changed opcode to THREAD UNSAFE)
@@ -518,17 +556,16 @@ void Player::UpdateLocalChannels(uint32 newZone)
                                   // names are not changing
 
                     char        new_channel_name_buf[100];
-                    char const* currentNameExt;
+                    std::string currentNameExt;
 
                     if (channel->flags & CHANNEL_DBC_FLAG_CITY_ONLY)
-                        currentNameExt = sObjectMgr->GetAcoreStringForDBCLocale(
-                            LANG_CHANNEL_CITY);
+                        currentNameExt = sObjectMgr->GetAcoreStringForDBCLocale(LANG_CHANNEL_CITY);
                     else
-                        currentNameExt = current_zone_name.c_str();
+                        currentNameExt = current_zone_name;
 
                     snprintf(new_channel_name_buf, 100,
                              channel->pattern[m_session->GetSessionDbcLocale()],
-                             currentNameExt);
+                             currentNameExt.c_str());
 
                     joinChannel = cMgr->GetJoinChannel(new_channel_name_buf,
                                                        channel->ChannelID);
@@ -670,14 +707,14 @@ void Player::UpdateRating(CombatRating cr)
 
 void Player::UpdateAllRatings()
 {
-    for (int cr = 0; cr < MAX_COMBAT_RATING; ++cr)
+    for (uint8 cr = 0; cr < MAX_COMBAT_RATING; ++cr)
         UpdateRating(CombatRating(cr));
 }
 
 // skill+step, checking for max value
 bool Player::UpdateSkill(uint32 skill_id, uint32 step)
 {
-    if (!skill_id)
+    if (!skill_id || !sScriptMgr->OnPlayerCanUpdateSkill(this, skill_id))
         return false;
 
     SkillStatusMap::iterator itr = mSkillStatus.find(skill_id);
@@ -688,6 +725,8 @@ bool Player::UpdateSkill(uint32 skill_id, uint32 step)
     uint32 data       = GetUInt32Value(valueIndex);
     uint32 value      = SKILL_VALUE(data);
     uint32 max        = SKILL_MAX(data);
+
+    sScriptMgr->OnPlayerBeforeUpdateSkill(this, skill_id, value, max, step);
 
     if ((!max) || (!value) || (value >= max))
         return false;
@@ -705,6 +744,8 @@ bool Player::UpdateSkill(uint32 skill_id, uint32 step)
         UpdateSkillEnchantments(skill_id, value, new_value);
         UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_REACH_SKILL_LEVEL,
                                   skill_id);
+
+        sScriptMgr->OnPlayerUpdateSkill(this, skill_id, value, max, step, new_value);
         return true;
     }
 
@@ -733,7 +774,7 @@ bool Player::UpdateGatherSkill(uint32 SkillId, uint32 SkillValue,
 
     uint32 gathering_skill_gain =
         sWorld->getIntConfig(CONFIG_SKILL_GAIN_GATHERING);
-    sScriptMgr->OnUpdateGatheringSkill(this, SkillId, SkillValue, RedLevel + 100, RedLevel + 50, RedLevel + 25, gathering_skill_gain);
+    sScriptMgr->OnPlayerUpdateGatheringSkill(this, SkillId, SkillValue, RedLevel + 100, RedLevel + 50, RedLevel + 25, gathering_skill_gain);
 
     // For skinning and Mining chance decrease with level. 1-74 - no decrease,
     // 75-149 - 2 times, 225-299 - 8 times
@@ -811,7 +852,7 @@ bool Player::UpdateCraftSkill(uint32 spellid)
 
             uint32 craft_skill_gain =
                 sWorld->getIntConfig(CONFIG_SKILL_GAIN_CRAFTING);
-            sScriptMgr->OnUpdateCraftingSkill(this, _spell_idx->second, SkillValue, craft_skill_gain);
+            sScriptMgr->OnPlayerUpdateCraftingSkill(this, _spell_idx->second, SkillValue, craft_skill_gain);
 
             return UpdateSkillPro(
                 _spell_idx->second->SkillLine,
@@ -880,7 +921,7 @@ bool Player::UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step)
     LOG_DEBUG("entities.player.skills",
               "UpdateSkillPro(SkillId {}, Chance {:3.1f}%)", SkillId,
               Chance / 10.0f);
-    if (!SkillId)
+    if (!SkillId || !sScriptMgr->OnPlayerCanUpdateSkill(this, SkillId))
         return false;
 
     if (Chance <= 0) // speedup in 0 chance case
@@ -898,8 +939,10 @@ bool Player::UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step)
     uint32 valueIndex = PLAYER_SKILL_VALUE_INDEX(itr->second.pos);
 
     uint32 data       = GetUInt32Value(valueIndex);
-    uint16 SkillValue = SKILL_VALUE(data);
-    uint16 MaxValue   = SKILL_MAX(data);
+    uint32 SkillValue = SKILL_VALUE(data);
+    uint32 MaxValue   = SKILL_MAX(data);
+
+    sScriptMgr->OnPlayerBeforeUpdateSkill(this, SkillId, SkillValue, MaxValue, step);
 
     if (!MaxValue || !SkillValue || SkillValue >= MaxValue)
         return false;
@@ -931,6 +974,8 @@ bool Player::UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step)
         LOG_DEBUG("entities.player.skills",
                   "Player::UpdateSkillPro Chance={:3.1f}% taken",
                   Chance / 10.0f);
+
+        sScriptMgr->OnPlayerUpdateSkill(this, SkillId, SkillValue, MaxValue, step, new_value);
         return true;
     }
 
@@ -947,9 +992,7 @@ void Player::UpdateWeaponSkill(Unit* victim, WeaponAttackType attType, Item* ite
     if (GetShapeshiftForm() == FORM_TREE)
         return; // use weapon but not skill up
 
-    if (victim->IsCreature() &&
-        (victim->ToCreature()->GetCreatureTemplate()->flags_extra &
-         CREATURE_FLAG_EXTRA_NO_SKILL_GAINS))
+    if (victim->IsCreature() && victim->ToCreature()->HasFlagsExtra(CREATURE_FLAG_EXTRA_NO_SKILL_GAINS))
         return;
 
     uint32 weapon_skill_gain = sWorld->getIntConfig(CONFIG_SKILL_GAIN_WEAPON);
@@ -1134,9 +1177,6 @@ bool Player::UpdatePosition(float x, float y, float z, float orientation,
     if (GetGroup())
         SetGroupUpdateFlag(GROUP_UPDATE_FLAG_POSITION);
 
-    if (GetTrader() && !IsWithinDistInMap(GetTrader(), INTERACTION_DISTANCE))
-        GetSession()->SendCancelTrade();
-
     CheckAreaExploreAndOutdoor();
 
     return true;
@@ -1198,7 +1238,8 @@ void Player::UpdateArea(uint32 newArea)
     {
         SetByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_SANCTUARY);
         pvpInfo.IsInNoPvPArea = true;
-        CombatStopWithPets();
+        if (!duel && GetCombatManager().HasPvPCombat())
+            CombatStopWithPets();
     }
     else
         RemoveByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_SANCTUARY);
@@ -1212,17 +1253,20 @@ void Player::UpdateArea(uint32 newArea)
         RemoveRestFlag(REST_FLAG_IN_FACTION_AREA);
 }
 
-void Player::UpdateZone(uint32 newZone, uint32 newArea)
+void Player::UpdateZone(uint32 newZone, uint32 newArea, bool force)
 {
     if (!newZone)
-    {
         return;
-    }
 
-    if (m_zoneUpdateId != newZone)
+    if (m_zoneUpdateId != newZone || force)
     {
         sOutdoorPvPMgr->HandlePlayerLeaveZone(this, m_zoneUpdateId);
         sOutdoorPvPMgr->HandlePlayerEnterZone(this, newZone);
+        sWorldState->HandlePlayerLeaveZone(this, static_cast<AreaTableIDs>(m_zoneUpdateId));
+        sWorldState->HandlePlayerEnterZone(this, static_cast<AreaTableIDs>(newZone));
+    }
+    if (m_zoneUpdateId != newZone)
+    {
         sBattlefieldMgr->HandlePlayerLeaveZone(this, m_zoneUpdateId);
         sBattlefieldMgr->HandlePlayerEnterZone(this, newZone);
         SendInitWorldStates(newZone,
@@ -1231,6 +1275,8 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
         if (Guild* guild = GetGuild())
             guild->UpdateMemberData(this, GUILD_MEMBER_DATA_ZONEID, newZone);
     }
+
+    GetMap()->UpdatePlayerZoneStats(m_zoneUpdateId, newZone);
 
     // group update
     if (GetGroup())
@@ -1247,13 +1293,9 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
         return;
 
     if (sWorld->getBoolConfig(CONFIG_WEATHER))
-    {
-        if (Weather* weather = WeatherMgr::FindWeather(zone->ID))
-            weather->SendWeatherUpdateToPlayer(this);
-        else if (!WeatherMgr::AddWeather(zone->ID))
-            // send fine weather packet to remove old zone's weather
-            WeatherMgr::SendFineWeatherUpdateToPlayer(this);
-    }
+        GetMap()->GetOrGenerateZoneDefaultWeather(newZone);
+
+    GetMap()->SendZoneDynamicInfo(newZone, this);
 
     sScriptMgr->OnPlayerUpdateZone(this, newZone, newArea);
 
@@ -1344,7 +1386,7 @@ void Player::UpdateEquipSpellsAtFormChange()
 
             ApplyEquipSpell(spellInfo, nullptr, false,
                             true); // remove spells that not fit to form
-            if (!sScriptMgr->CanApplyEquipSpellsItemSet(this, eff))
+            if (!sScriptMgr->OnPlayerCanApplyEquipSpellsItemSet(this, eff))
                 break;
             ApplyEquipSpell(spellInfo, nullptr, true,
                             true); // add spells that fit form but not active
@@ -1363,7 +1405,7 @@ void Player::UpdateHomebindTime(uint32 time)
             WorldPacket data(SMSG_RAID_GROUP_ONLY, 4 + 4);
             data << uint32(0);
             data << uint32(0);
-            GetSession()->SendPacket(&data);
+            SendDirectMessage(&data);
         }
         // instance is valid, reset homebind timer
         m_HomebindTimer = 0;
@@ -1386,7 +1428,7 @@ void Player::UpdateHomebindTime(uint32 time)
         WorldPacket data(SMSG_RAID_GROUP_ONLY, 4 + 4);
         data << uint32(m_HomebindTimer);
         data << uint32(1);
-        GetSession()->SendPacket(&data);
+        SendDirectMessage(&data);
         LOG_DEBUG(
             "maps",
             "PLAYER: Player '{}' ({}) will be teleported to homebind in 60 "
@@ -1401,6 +1443,9 @@ void Player::UpdatePvPState()
 
     if (pvpInfo.IsHostile) // in hostile area
     {
+        if (IsInFlight() || !m_taxi.empty()) // on taxi or taxi pending resume after login
+            return;
+
         if (!IsPvP() || pvpInfo.EndTimer != 0)
             UpdatePvP(true, true);
     }
@@ -1422,7 +1467,7 @@ void Player::UpdateFFAPvPState(bool reset /*= true*/)
     {
         if (!IsFFAPvP())
         {
-            sScriptMgr->OnFfaPvpStateUpdate(this, true);
+            sScriptMgr->OnPlayerFfaPvpStateUpdate(this, true);
             SetByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_FFA_PVP);
             for (ControlSet::iterator itr = m_Controlled.begin();
                  itr != m_Controlled.end(); ++itr)
@@ -1444,7 +1489,7 @@ void Player::UpdateFFAPvPState(bool reset /*= true*/)
             if (HasByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_FFA_PVP))
             {
                 RemoveByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_FFA_PVP);
-                sScriptMgr->OnFfaPvpStateUpdate(this, false);
+                sScriptMgr->OnPlayerFfaPvpStateUpdate(this, false);
             }
             for (ControlSet::iterator itr = m_Controlled.begin();
                  itr != m_Controlled.end(); ++itr)
@@ -1507,6 +1552,16 @@ void Player::UpdatePvP(bool state, bool _override)
     sScriptMgr->OnPlayerPVPFlagChange(this, state);
 }
 
+void Player::AtExitCombat()
+{
+    Unit::AtExitCombat();
+    UpdatePotionCooldown();
+
+    if (IsClass(CLASS_DEATH_KNIGHT, CLASS_CONTEXT_ABILITY))
+        for (uint8 i = 0; i < MAX_RUNES; ++i)
+            SetGracePeriod(i, 0);
+}
+
 void Player::UpdatePotionCooldown(Spell* spell)
 {
     // no potion used i combat or still in combat
@@ -1557,21 +1612,12 @@ void Player::UpdateVisibilityForPlayer(bool mapChange)
     // After added to map seer must be a player - there is no possibility to
     // still have different seer (all charm auras must be already removed)
     if (mapChange && m_seer != this)
-    {
         m_seer = this;
-    }
 
-    Acore::VisibleNotifier notifierNoLarge(
-        *this, mapChange,
-        false); // visit only objects which are not large; default distance
-    Cell::VisitAllObjects(m_seer, notifierNoLarge,
-                          GetSightRange() + VISIBILITY_INC_FOR_GOBJECTS);
-    notifierNoLarge.SendToSelf();
-
-    Acore::VisibleNotifier notifierLarge(
-        *this, mapChange, true); // visit only large objects; maximum distance
-    Cell::VisitAllObjects(m_seer, notifierLarge, GetSightRange());
-    notifierLarge.SendToSelf();
+    Acore::VisibleNotifier notifier(*this, mapChange);
+    Cell::VisitObjects(GetSightPosition().GetPositionX(), GetSightPosition().GetPositionY(), GetMap(), notifier, GetSightRange());
+    Cell::VisitFarVisibleObjects(GetSightPosition().GetPositionX(), GetSightPosition().GetPositionY(), GetMap(), notifier, VISIBILITY_DISTANCE_GIGANTIC);
+    notifier.SendToSelf();
 
     if (mapChange)
         m_last_notify_position.Relocate(-5000.0f, -5000.0f, -5000.0f, 0.0f);
@@ -1598,35 +1644,32 @@ void Player::UpdateObjectVisibility(bool forced, bool fromUpdate)
 }
 
 template <class T>
-inline void UpdateVisibilityOf_helper(GuidUnorderedSet& s64, T* target,
+inline void UpdateVisibilityOf_helper(Player* player, T* target,
                                       std::vector<Unit*>& /*v*/)
 {
-    s64.insert(target->GetGUID());
+    player->GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);
 }
 
 template <>
-inline void UpdateVisibilityOf_helper(GuidUnorderedSet& s64, GameObject* target,
+inline void UpdateVisibilityOf_helper(Player* player, GameObject* target,
                                       std::vector<Unit*>& /*v*/)
 {
-    // @HACK: This is to prevent objects like deeprun tram from disappearing
-    // when player moves far from its spawn point while riding it
-    if ((target->GetGOInfo()->type != GAMEOBJECT_TYPE_TRANSPORT))
-        s64.insert(target->GetGUID());
+    player->GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);
 }
 
 template <>
-inline void UpdateVisibilityOf_helper(GuidUnorderedSet& s64, Creature* target,
+inline void UpdateVisibilityOf_helper(Player* player, Creature* target,
                                       std::vector<Unit*>& v)
 {
-    s64.insert(target->GetGUID());
+    player->GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);
     v.push_back(target);
 }
 
 template <>
-inline void UpdateVisibilityOf_helper(GuidUnorderedSet& s64, Player* target,
+inline void UpdateVisibilityOf_helper(Player* player, Player* target,
                                       std::vector<Unit*>& v)
 {
-    s64.insert(target->GetGUID());
+    player->GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);
     v.push_back(target);
 }
 
@@ -1646,6 +1689,8 @@ template <class T>
 void Player::UpdateVisibilityOf(T* target, UpdateData& data,
                                 std::vector<Unit*>& visibleNow)
 {
+    GetMap()->AddObjectToPendingUpdateList(target);
+
     if (HaveAtClient(target))
     {
         if (!CanSeeOrDetect(target, false, true))
@@ -1653,7 +1698,7 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
             BeforeVisibilityDestroy<T>(target, this);
 
             target->BuildOutOfRangeUpdateBlock(&data);
-            m_clientGUIDs.erase(target->GetGUID());
+            GetObjectVisibilityContainer().UnlinkWorldObjectVisibility(target);
         }
     }
     else
@@ -1661,7 +1706,7 @@ void Player::UpdateVisibilityOf(T* target, UpdateData& data,
         if (CanSeeOrDetect(target, false, true))
         {
             target->BuildCreateUpdateBlockForPlayer(&data, this);
-            UpdateVisibilityOf_helper(m_clientGUIDs, target, visibleNow);
+            UpdateVisibilityOf_helper(this, target, visibleNow);
         }
     }
 }
@@ -1687,7 +1732,7 @@ void Player::UpdateVisibilityOf(WorldObject* target)
                 BeforeVisibilityDestroy<Creature>(target->ToCreature(), this);
 
             target->DestroyForPlayer(this);
-            m_clientGUIDs.erase(target->GetGUID());
+            GetObjectVisibilityContainer().UnlinkWorldObjectVisibility(target);
         }
     }
     else
@@ -1695,7 +1740,7 @@ void Player::UpdateVisibilityOf(WorldObject* target)
         if (CanSeeOrDetect(target, false, true))
         {
             target->SendUpdateToPlayer(this);
-            m_clientGUIDs.insert(target->GetGUID());
+            GetObjectVisibilityContainer().LinkWorldObjectVisibility(target);
 
             // target aura duration for caster show only if target exist at
             // caster client send data at target visibility change (adding to
@@ -1708,69 +1753,67 @@ void Player::UpdateVisibilityOf(WorldObject* target)
 
 void Player::UpdateTriggerVisibility()
 {
-    if (m_clientGUIDs.empty())
-        return;
-
     if (!IsInWorld())
         return;
 
-    UpdateData  udata;
-    WorldPacket packet;
-    for (GuidUnorderedSet::iterator itr = m_clientGUIDs.begin();
-         itr != m_clientGUIDs.end(); ++itr)
+    if (GetObjectVisibilityContainer().GetVisibleWorldObjectsMap()->empty())
+        return;
+
+    UpdateData udata;
+    DoForAllVisibleWorldObjects([this, &udata](WorldObject* worldObject)
     {
-        if ((*itr).IsCreatureOrVehicle())
+        if (worldObject->IsCreature())
         {
-            Creature* creature = GetMap()->GetCreature(*itr);
+            Creature* creature = worldObject->ToCreature();
             // Update fields of triggers, transformed units or unselectable
             // units (values dependent on GM state)
             if (!creature || (!creature->IsTrigger() &&
-                              !creature->HasAuraType(SPELL_AURA_TRANSFORM) &&
-                              !creature->HasUnitFlag(UNIT_FLAG_NOT_SELECTABLE)))
-                continue;
+                !creature->HasTransformAura() &&
+                !creature->HasUnitFlag(UNIT_FLAG_NOT_SELECTABLE)))
+                return;
 
             creature->SetFieldNotifyFlag(UF_FLAG_PUBLIC);
             creature->BuildValuesUpdateBlockForPlayer(&udata, this);
             creature->RemoveFieldNotifyFlag(UF_FLAG_PUBLIC);
         }
-        else if ((*itr).IsGameObject())
+        else if (worldObject->IsGameObject())
         {
-            GameObject* go = GetMap()->GetGameObject(*itr);
+            GameObject* go = worldObject->ToGameObject();
             if (!go)
-                continue;
+                return;
 
             go->SetFieldNotifyFlag(UF_FLAG_PUBLIC);
             go->BuildValuesUpdateBlockForPlayer(&udata, this);
             go->RemoveFieldNotifyFlag(UF_FLAG_PUBLIC);
         }
-    }
+    });
 
     if (!udata.HasData())
         return;
 
+    WorldPacket packet;
     udata.BuildPacket(packet);
-    GetSession()->SendPacket(&packet);
+    SendDirectMessage(&packet);
 }
 
 void Player::UpdateForQuestWorldObjects()
 {
-    if (m_clientGUIDs.empty())
+    if (GetObjectVisibilityContainer().GetVisibleWorldObjectsMap()->empty())
         return;
 
-    UpdateData  udata;
-    WorldPacket packet;
-    for (GuidUnorderedSet::iterator itr = m_clientGUIDs.begin(); itr != m_clientGUIDs.end(); ++itr)
+    UpdateData udata;
+    DoForAllVisibleWorldObjects([this, &udata](WorldObject* worldObject)
     {
-        if ((*itr).IsGameObject())
+        if (worldObject->IsGameObject())
         {
-            if (GameObject* obj = ObjectAccessor::GetGameObject(*this, *itr))
+            if (GameObject* obj = worldObject->ToGameObject())
                 obj->BuildValuesUpdateBlockForPlayer(&udata, this);
         }
-        else if ((*itr).IsCreatureOrVehicle())
+        else if (worldObject->IsCreature())
         {
-            Creature* obj = ObjectAccessor::GetCreatureOrPetOrVehicle(*this, *itr);
+            Creature* obj = worldObject->ToCreature();
             if (!obj)
-                continue;
+                return;
 
             // check if this unit requires quest specific flags
             if (obj->HasNpcFlag(UNIT_NPC_FLAG_SPELLCLICK))
@@ -1794,14 +1837,16 @@ void Player::UpdateForQuestWorldObjects()
                 }
             }
             else if (obj->HasNpcFlag(UNIT_NPC_FLAG_VENDOR_MASK | UNIT_NPC_FLAG_TRAINER))
-            {
                 obj->BuildValuesUpdateBlockForPlayer(&udata, this);
-            }
         }
-    }
+    });
 
+    if (!udata.HasData())
+        return;
+
+    WorldPacket packet;
     udata.BuildPacket(packet);
-    GetSession()->SendPacket(&packet);
+    SendDirectMessage(&packet);
 }
 
 void Player::UpdateTitansGrip()
@@ -1945,10 +1990,7 @@ void Player::UpdateCharmedAI()
 
     Unit* target = GetVictim();
     if (target)
-    {
         SetInFront(target);
-        SendMovementFlagUpdate(true);
-    }
 
     if (HasUnitState(UNIT_STATE_CASTING))
         return;
@@ -2264,4 +2306,104 @@ void Player::ProcessTerrainStatusUpdate()
     }
     else
         m_MirrorTimerFlags &= ~(UNDERWATER_INWATER | UNDERWATER_INLAVA | UNDERWATER_INSLIME | UNDERWATER_INDARKWATER);
+}
+
+uint32 Player::GetSpellQueueWindow() const
+{
+    return sWorld->getIntConfig(CONFIG_SPELL_QUEUE_WINDOW);
+}
+
+bool Player::CanExecutePendingSpellCastRequest(SpellInfo const* spellInfo)
+{
+    if (GetGlobalCooldownMgr().HasGlobalCooldown(spellInfo))
+        return false;
+
+    if (GetSpellCooldownDelay(spellInfo->Id) > GetSpellQueueWindow())
+        return false;
+
+    for (CurrentSpellTypes spellSlot : {CURRENT_MELEE_SPELL, CURRENT_GENERIC_SPELL})
+        if (Spell* spell = GetCurrentSpell(spellSlot))
+        {
+            bool autoshot = spell->m_spellInfo->IsAutoRepeatRangedSpell();
+            if (IsNonMeleeSpellCast(false, true, true, autoshot))
+                return false;
+        }
+    return true;
+}
+
+const PendingSpellCastRequest* Player::GetCastRequest(uint32 category) const
+{
+    for (const PendingSpellCastRequest& request : SpellQueue)
+        if (request.category == category)
+            return &request;
+    return nullptr;
+}
+
+bool Player::CanRequestSpellCast(SpellInfo const* spellInfo)
+{
+    if (!sWorld->getBoolConfig(CONFIG_SPELL_QUEUE_ENABLED))
+        return false;
+
+    // Check for existing cast request with the same category
+    if (GetCastRequest(spellInfo->GetCategory()))
+        return false;
+
+    if (GetGlobalCooldownMgr().GetGlobalCooldown(spellInfo) > GetSpellQueueWindow())
+        return false;
+
+    if (GetSpellCooldownDelay(spellInfo->Id) > GetSpellQueueWindow())
+        return false;
+
+    // If there is an existing cast that will last longer than the allowable
+    // spell queue window, then we can't request a new spell cast
+    for (CurrentSpellTypes spellSlot : { CURRENT_MELEE_SPELL, CURRENT_GENERIC_SPELL })
+        if (Spell* spell = GetCurrentSpell(spellSlot))
+            if (spell->GetCastTimeRemaining() > static_cast<int32>(GetSpellQueueWindow()))
+                return false;
+
+    return true;
+}
+
+void Player::ExecuteOrCancelSpellCastRequest(PendingSpellCastRequest* request, bool isCancel /* = false*/)
+{
+    if (isCancel)
+        request->cancelInProgress = true;
+
+    if (WorldSession* session = GetSession())
+    {
+        if (request->isItem)
+            session->HandleUseItemOpcode(request->requestPacket);
+        else
+            session->HandleCastSpellOpcode(request->requestPacket);
+    }
+}
+
+void Player::ProcessSpellQueue()
+{
+    while (!SpellQueue.empty())
+    {
+        PendingSpellCastRequest& request = SpellQueue.front(); // Peek at the first spell
+        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(request.spellId);
+        if (!spellInfo)
+        {
+            LOG_ERROR("entities.player", "Player::ProcessSpellQueue: Invalid spell {}", request.spellId);
+            SpellQueue.clear();
+            break;
+        }
+        if (CanExecutePendingSpellCastRequest(spellInfo))
+        {
+            ExecuteOrCancelSpellCastRequest(&request);
+
+            // ExecuteOrCancelSpellCastRequest() can lead to clearing the SpellQueue.
+            // Example scenario:
+            //   Handling a spell → Dealing damage to yourself (e.g., spell_pri_vampiric_touch) →
+            //   Killing yourself → Player::setDeathState() → SpellQueue.clear().
+            // Calling std::deque::pop_front() on an empty deque results in undefined behavior,
+            // so an additional check is added.
+            if (!SpellQueue.empty())
+                SpellQueue.pop_front();
+        }
+        else // If the first spell can't execute, stop processing
+            break;
+    }
 }

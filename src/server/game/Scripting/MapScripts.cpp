@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -20,14 +20,12 @@
 #include "GridNotifiers.h"
 #include "Map.h"
 #include "MapMgr.h"
-#include "MapRefMgr.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
 #include "ScriptMgr.h"
 #include "ScriptedCreature.h"
 #include "Transport.h"
 #include "WaypointMgr.h"
-#include "World.h"
 
 /// Put scripts in the execution queue
 void Map::ScriptsStart(ScriptMapMap const& scripts, uint32 id, Object* source, Object* target)
@@ -444,7 +442,7 @@ void Map::ScriptsProcess()
                     if (step.script->MoveTo.TravelTime != 0)
                     {
                         float speed = unit->GetDistance(step.script->MoveTo.DestX, step.script->MoveTo.DestY, step.script->MoveTo.DestZ) / ((float)step.script->MoveTo.TravelTime * 0.001f);
-                        unit->MonsterMoveWithSpeed(step.script->MoveTo.DestX, step.script->MoveTo.DestY, step.script->MoveTo.DestZ, speed);
+                        unit->GetMotionMaster()->MovePoint(0, step.script->MoveTo.DestX, step.script->MoveTo.DestY, step.script->MoveTo.DestZ, FORCED_MOVEMENT_NONE, speed);
                     }
                     else
                         unit->NearTeleportTo(step.script->MoveTo.DestX, step.script->MoveTo.DestY, step.script->MoveTo.DestZ, unit->GetOrientation());
@@ -730,8 +728,10 @@ void Map::ScriptsProcess()
                             break;
                     }
 
-                    // Playsound.Flags bitmask: 0/2=without/with distance dependent
-                    if (step.script->Playsound.Flags & SF_PLAYSOUND_DISTANCE_SOUND)
+                    // Playsound.Flags bitmask: 0/2/4=without/with distance dependent/radius
+                    if (step.script->Playsound.Flags & SF_PLAYSOUND_DISTANCE_RADIUS)
+                        object->PlayRadiusSound(step.script->Playsound.SoundID, step.script->Playsound.Radius);
+                    else if (step.script->Playsound.Flags & SF_PLAYSOUND_DISTANCE_SOUND)
                         object->PlayDistanceSound(step.script->Playsound.SoundID, player);
                     else
                         object->PlayDirectSound(step.script->Playsound.SoundID, player);
@@ -757,7 +757,7 @@ void Map::ScriptsProcess()
             case SCRIPT_COMMAND_DESPAWN_SELF:
                 // Target or source must be Creature.
                 if (Creature* cSource = _GetScriptCreatureSourceOrTarget(source, target, step.script, true))
-                    cSource->DespawnOrUnsummon(step.script->DespawnSelf.DespawnDelay);
+                    cSource->DespawnOrUnsummon(Milliseconds(step.script->DespawnSelf.DespawnDelay));
                 break;
 
             case SCRIPT_COMMAND_LOAD_PATH:
@@ -767,7 +767,7 @@ void Map::ScriptsProcess()
                     if (!sWaypointMgr->GetPath(step.script->LoadPath.PathID))
                         LOG_ERROR("maps.script", "{} source object has an invalid path ({}), skipping.", step.script->GetDebugInfo(), step.script->LoadPath.PathID);
                     else
-                        unit->GetMotionMaster()->MovePath(step.script->LoadPath.PathID, step.script->LoadPath.IsRepeatable);
+                        unit->GetMotionMaster()->MoveWaypoint(step.script->LoadPath.PathID, step.script->LoadPath.IsRepeatable);
                 }
                 break;
 
@@ -880,7 +880,6 @@ void Map::ScriptsProcess()
                     if (!cSource->IsAlive())
                         return;
 
-                    cSource->GetMotionMaster()->MovementExpired();
                     cSource->GetMotionMaster()->MoveIdle();
 
                     switch (step.script->Movement.MovementType)
@@ -889,7 +888,7 @@ void Map::ScriptsProcess()
                             cSource->GetMotionMaster()->MoveRandom((float)step.script->Movement.MovementDistance);
                             break;
                         case WAYPOINT_MOTION_TYPE:
-                            cSource->GetMotionMaster()->MovePath(step.script->Movement.Path, false);
+                            cSource->GetMotionMaster()->MoveWaypoint(step.script->Movement.Path, false);
                             break;
                     }
                 }

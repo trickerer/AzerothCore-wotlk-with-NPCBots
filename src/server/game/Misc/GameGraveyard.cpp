@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -46,11 +46,11 @@ void Graveyard::LoadGraveyardFromDB()
 
     do
     {
-        Field* fields = result->Fetch();
-        uint32 ID = fields[0].Get<uint32>();
-
         GraveyardStruct Graveyard;
 
+        Field* fields = result->Fetch();
+
+        Graveyard.ID = fields[0].Get<uint32>();
         Graveyard.Map = fields[1].Get<uint32>();
         Graveyard.x = fields[2].Get<float>();
         Graveyard.y = fields[3].Get<float>();
@@ -59,13 +59,13 @@ void Graveyard::LoadGraveyardFromDB()
 
         if (!Utf8toWStr(Graveyard.name, Graveyard.wnameLow))
         {
-            LOG_ERROR("sql.sql", "Wrong UTF8 name for id {} in `game_graveyard` table, ignoring.", ID);
+            LOG_ERROR("sql.sql", "Wrong UTF8 name for id {} in `game_graveyard` table, ignoring.", Graveyard.ID);
             continue;
         }
 
         wstrToLower(Graveyard.wnameLow);
 
-        _graveyardStore[ID] = Graveyard;
+        _graveyardStore[Graveyard.ID] = std::move(Graveyard);
 
         ++Count;
     } while (result->NextRow());
@@ -91,16 +91,16 @@ GraveyardStruct const* Graveyard::GetDefaultGraveyard(TeamId teamId)
         ALLIANCE_GRAVEYARD = 4, // Westfall
     };
 
-    return sGraveyard->GetGraveyard(teamId == TEAM_HORDE ? HORDE_GRAVEYARD : ALLIANCE_GRAVEYARD);
+    return GetGraveyard(teamId == TEAM_HORDE ? HORDE_GRAVEYARD : ALLIANCE_GRAVEYARD);
 }
 
 GraveyardStruct const* Graveyard::GetClosestGraveyard(Player* player, TeamId teamId, bool nearCorpse)
 {
     uint32 graveyardOverride = 0;
-    sScriptMgr->OnBeforeChooseGraveyard(player, teamId, nearCorpse, graveyardOverride);
+    sScriptMgr->OnPlayerBeforeChooseGraveyard(player, teamId, nearCorpse, graveyardOverride);
     if (graveyardOverride)
     {
-        return sGraveyard->GetGraveyard(graveyardOverride);
+        return GetGraveyard(graveyardOverride);
     }
 
     WorldLocation loc = player->GetWorldLocation();
@@ -182,7 +182,7 @@ GraveyardStruct const* Graveyard::GetClosestGraveyard(Player* player, TeamId tea
     for (; range.first != range.second; ++range.first)
     {
         GraveyardData const& graveyardLink = range.first->second;
-        GraveyardStruct const* entry = sGraveyard->GetGraveyard(graveyardLink.safeLocId);
+        GraveyardStruct const* entry = GetGraveyard(graveyardLink.safeLocId);
         if (!entry)
         {
             LOG_ERROR("sql.sql", "Table `graveyard_zone` has record for not existing `game_graveyard` table {}, skipped.", graveyardLink.safeLocId);
@@ -388,7 +388,7 @@ void Graveyard::LoadGraveyardZones()
         uint32 team = fields[2].Get<uint16>();
         TeamId teamId = team == 0 ? TEAM_NEUTRAL : (team == ALLIANCE ? TEAM_ALLIANCE : TEAM_HORDE);
 
-        GraveyardStruct const* entry = sGraveyard->GetGraveyard(safeLocId);
+        GraveyardStruct const* entry = GetGraveyard(safeLocId);
         if (!entry)
         {
             LOG_ERROR("sql.sql", "Table `graveyard_zone` has a record for not existing `game_graveyard` table {}, skipped.", safeLocId);

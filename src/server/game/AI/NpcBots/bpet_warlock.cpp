@@ -237,15 +237,15 @@ public:
                 }
 
                 if (IsSpellReady(SUFFERING_1, diff) &&
-                    !(u == me && opponent->GetTypeId() == TYPEID_UNIT &&
+                    !(u == me && opponent->IsCreature() &&
                     (opponent->ToCreature()->IsDungeonBoss() || opponent->ToCreature()->isWorldBoss())))
                 {
                     std::list<Unit*> targets;
                     petOwner->GetBotAI()->HelpGetNearbyTargetsList(targets, 9.f, 1, me);
                     uint8 count = 0;
-                    for (std::list<Unit*>::const_iterator itr = targets.begin(); itr != targets.end(); ++itr)
+                    for (Unit const* u : targets)
                     {
-                        if (!((*itr)->GetVictim() && IsTank((*itr)->GetVictim())))
+                        if (!(u->GetVictim() && IsTank(u->GetVictim())))
                             if (++count > 1)
                                 break;
                     }
@@ -286,7 +286,7 @@ public:
             {
                 if (IsSpellReady(INTERCEPT_1, diff, false) && canDPS &&
                     !HasBotCommandState(BOT_COMMAND_STAY) &&
-                    !(opponent->GetTypeId() == TYPEID_UNIT && opponent->ToCreature()->isWorldBoss()) &&
+                    !(opponent->IsCreature() && opponent->ToCreature()->isWorldBoss()) &&
                     dist > 8 && dist < 25 && !CCed(opponent))
                 {
                     me->CastSpell(opponent, GetSpell(INTERCEPT_1), false);
@@ -329,9 +329,9 @@ public:
         {
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
-            bot_pet_ai::DamageDealt(victim, damage, damageType);
+            bot_pet_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override

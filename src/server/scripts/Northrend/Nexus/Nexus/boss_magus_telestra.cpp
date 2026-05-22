@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -41,6 +41,7 @@ enum Spells
     SPELL_ARCANE_MAGUS_SUMMON       = 47708,
 
     SPELL_FIRE_MAGUS_DEATH          = 47711,
+    SPELL_FROST_MAGUS_DEATH         = 47712,
     SPELL_ARCANE_MAGUS_DEATH        = 47713,
 
     SPELL_WEAR_CHRISTMAS_HAT        = 61400
@@ -79,159 +80,148 @@ enum Events
     EVENT_KILL_TALK                 = 9
 };
 
-class boss_magus_telestra : public CreatureScript
+struct boss_magus_telestra : public BossAI
 {
-public:
-    boss_magus_telestra() : CreatureScript("boss_magus_telestra") { }
+    boss_magus_telestra(Creature* creature) : BossAI(creature, DATA_MAGUS_TELESTRA_EVENT) { }
 
-    CreatureAI* GetAI(Creature* creature) const override
+    bool achievement;
+
+    void Reset() override
     {
-        return GetNexusAI<boss_magus_telestraAI>(creature);
+        BossAI::Reset();
+        achievement = true;
+
+        if (IsHeroic() && sGameEventMgr->IsActiveEvent(GAME_EVENT_WINTER_VEIL) && !me->HasAura(SPELL_WEAR_CHRISTMAS_HAT))
+            me->AddAura(SPELL_WEAR_CHRISTMAS_HAT, me);
+
+        SetInvincibility(false);
     }
 
-    struct boss_magus_telestraAI : public BossAI
+    uint32 GetData(uint32 data) const override
     {
-        boss_magus_telestraAI(Creature* creature) : BossAI(creature, DATA_MAGUS_TELESTRA_EVENT)
+        if (data == me->GetEntry())
+            return achievement;
+        return 0;
+    }
+
+    void JustEngagedWith(Unit* who) override
+    {
+        BossAI::JustEngagedWith(who);
+        Talk(SAY_AGGRO);
+
+        events.ScheduleEvent(EVENT_MAGUS_ICE_NOVA, 10s);
+        events.ScheduleEvent(EVENT_MAGUS_FIREBOMB, 0ms);
+        events.ScheduleEvent(EVENT_MAGUS_GRAVITY_WELL, 20s);
+        events.ScheduleEvent(EVENT_MAGUS_HEALTH1, 1s);
+        if (IsHeroic())
+            events.ScheduleEvent(EVENT_MAGUS_HEALTH2, 1s);
+    }
+
+    void AttackStart(Unit* who) override
+    {
+        if (who && me->Attack(who, true))
+            me->GetMotionMaster()->MoveChase(who, 20.0f);
+    }
+
+    void JustDied(Unit* killer) override
+    {
+        BossAI::JustDied(killer);
+        Talk(SAY_DEATH);
+    }
+
+    void KilledUnit(Unit*) override
+    {
+        if (!events.HasTimeUntilEvent(EVENT_KILL_TALK))
         {
+            Talk(SAY_KILL);
+            events.ScheduleEvent(EVENT_KILL_TALK, 6s);
         }
+    }
 
-        uint8 copiesDied;
-        bool achievement;
+    void JustSummoned(Creature* summon) override
+    {
+        summons.Summon(summon);
+        summon->SetInCombatWithZone();
+    }
 
-        void Reset() override
+    void SpellHit(Unit* caster, SpellInfo const* spellInfo) override
+    {
+        if (spellInfo->Id >= SPELL_FIRE_MAGUS_DEATH && spellInfo->Id <= SPELL_ARCANE_MAGUS_DEATH && caster->ToCreature())
         {
-            BossAI::Reset();
-            copiesDied = 0;
-            achievement = true;
+            events.ScheduleEvent(EVENT_MAGUS_FAIL_ACHIEVEMENT, 5s);
+            caster->ToCreature()->DespawnOrUnsummon(1s);
 
-            if (IsHeroic() && sGameEventMgr->IsActiveEvent(GAME_EVENT_WINTER_VEIL) && !me->HasAura(SPELL_WEAR_CHRISTMAS_HAT))
-                me->AddAura(SPELL_WEAR_CHRISTMAS_HAT, me);
+            if (me->HasAura(SPELL_FIRE_MAGUS_DEATH) && me->HasAura(SPELL_FROST_MAGUS_DEATH) && me->HasAura(SPELL_ARCANE_MAGUS_DEATH))
+            {
+                events.CancelEvent(EVENT_MAGUS_FAIL_ACHIEVEMENT);
+                events.ScheduleEvent(EVENT_MAGUS_MERGED, 5s);
+                me->CastSpell(me, SPELL_BURNING_WINDS, true);
+            }
         }
+    }
 
-        uint32 GetData(uint32 data) const override
+    void UpdateAI(uint32 diff) override
+    {
+        if (!UpdateVictim())
+            return;
+
+        events.Update(diff);
+        if (me->HasUnitState(UNIT_STATE_CASTING) ||
+           (me->HasUnitState(UNIT_STATE_STUNNED) && !me->HasAura(SPELL_START_SUMMON_CLONES))) // Reflected Ice Nova can stun her as its mechanic bypasses immunities
+            return;
+
+        switch (events.ExecuteEvent())
         {
-            if (data == me->GetEntry())
-                return achievement;
-            return 0;
-        }
-
-        void JustEngagedWith(Unit* who) override
-        {
-            BossAI::JustEngagedWith(who);
-            Talk(SAY_AGGRO);
-
-            events.ScheduleEvent(EVENT_MAGUS_ICE_NOVA, 10s);
-            events.ScheduleEvent(EVENT_MAGUS_FIREBOMB, 0ms);
-            events.ScheduleEvent(EVENT_MAGUS_GRAVITY_WELL, 20s);
+        case EVENT_MAGUS_HEALTH1:
+            if (me->HealthBelowPct(51) && me->HealthAbovePct(11))
+            {
+                me->CastSpell(me, SPELL_START_SUMMON_CLONES, false);
+                events.ScheduleEvent(EVENT_MAGUS_RELOCATE, 3500ms);
+                Talk(SAY_SPLIT);
+                break;
+            }
             events.ScheduleEvent(EVENT_MAGUS_HEALTH1, 1s);
-            if (IsHeroic())
-                events.ScheduleEvent(EVENT_MAGUS_HEALTH2, 1s);
-        }
-
-        void AttackStart(Unit* who) override
-        {
-            if (who && me->Attack(who, true))
-                me->GetMotionMaster()->MoveChase(who, 20.0f);
-        }
-
-        void JustDied(Unit* killer) override
-        {
-            BossAI::JustDied(killer);
-            Talk(SAY_DEATH);
-        }
-
-        void KilledUnit(Unit*) override
-        {
-            if (events.GetNextEventTime(EVENT_KILL_TALK) == 0)
+            break;
+        case EVENT_MAGUS_HEALTH2:
+            if (me->HealthBelowPct(11))
             {
-                Talk(SAY_KILL);
-                events.ScheduleEvent(EVENT_KILL_TALK, 6s);
+                SetInvincibility(true);
+                me->CastSpell(me, SPELL_START_SUMMON_CLONES, false);
+                events.ScheduleEvent(EVENT_MAGUS_RELOCATE, 3500ms);
+                Talk(SAY_SPLIT);
+                break;
             }
+            events.ScheduleEvent(EVENT_MAGUS_HEALTH2, 1s);
+            break;
+        case EVENT_MAGUS_FIREBOMB:
+            if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
+                me->CastSpell(target, SPELL_FIREBOMB, false);
+            events.ScheduleEvent(EVENT_MAGUS_FIREBOMB, 3s);
+            break;
+        case EVENT_MAGUS_ICE_NOVA:
+            me->CastSpell(me, SPELL_ICE_NOVA, false);
+            events.ScheduleEvent(EVENT_MAGUS_ICE_NOVA, 15s);
+            break;
+        case EVENT_MAGUS_GRAVITY_WELL:
+            me->CastSpell(me, SPELL_GRAVITY_WELL, false);
+            events.ScheduleEvent(EVENT_MAGUS_GRAVITY_WELL, 15s);
+            break;
+        case EVENT_MAGUS_FAIL_ACHIEVEMENT:
+            achievement = false;
+            break;
+        case EVENT_MAGUS_RELOCATE:
+            me->NearTeleportTo(505.04f, 88.915f, -16.13f, 2.98f);
+            break;
+        case EVENT_MAGUS_MERGED:
+            me->CastSpell(me, SPELL_TELESTRA_BACK, true);
+            me->RemoveAllAuras();
+            Talk(SAY_MERGE);
+            SetInvincibility(false);
+            break;
         }
 
-        void JustSummoned(Creature* summon) override
-        {
-            summons.Summon(summon);
-            summon->SetInCombatWithZone();
-        }
-
-        void SpellHit(Unit* caster, SpellInfo const* spellInfo) override
-        {
-            if (spellInfo->Id >= SPELL_FIRE_MAGUS_DEATH && spellInfo->Id <= SPELL_ARCANE_MAGUS_DEATH && caster->ToCreature())
-            {
-                events.ScheduleEvent(EVENT_MAGUS_FAIL_ACHIEVEMENT, 5s);
-                caster->ToCreature()->DespawnOrUnsummon(1000);
-
-                if (++copiesDied >= 3)
-                {
-                    copiesDied = 0;
-                    events.CancelEvent(EVENT_MAGUS_FAIL_ACHIEVEMENT);
-                    events.ScheduleEvent(EVENT_MAGUS_MERGED, 5s);
-                    me->CastSpell(me, SPELL_BURNING_WINDS, true);
-                }
-            }
-        }
-
-        void UpdateAI(uint32 diff) override
-        {
-            if (!UpdateVictim())
-                return;
-
-            events.Update(diff);
-            if (me->HasUnitState(UNIT_STATE_CASTING))
-                return;
-
-            switch (events.ExecuteEvent())
-            {
-                case EVENT_MAGUS_HEALTH1:
-                    if (me->HealthBelowPct(51))
-                    {
-                        me->CastSpell(me, SPELL_START_SUMMON_CLONES, false);
-                        events.ScheduleEvent(EVENT_MAGUS_RELOCATE, 3500ms);
-                        Talk(SAY_SPLIT);
-                        break;
-                    }
-                    events.ScheduleEvent(EVENT_MAGUS_HEALTH1, 1s);
-                    break;
-                case EVENT_MAGUS_HEALTH2:
-                    if (me->HealthBelowPct(11))
-                    {
-                        me->CastSpell(me, SPELL_START_SUMMON_CLONES, false);
-                        events.ScheduleEvent(EVENT_MAGUS_RELOCATE, 3500ms);
-                        Talk(SAY_SPLIT);
-                        break;
-                    }
-                    events.ScheduleEvent(EVENT_MAGUS_HEALTH2, 1s);
-                    break;
-                case EVENT_MAGUS_FIREBOMB:
-                    if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
-                        me->CastSpell(target, SPELL_FIREBOMB, false);
-                    events.ScheduleEvent(EVENT_MAGUS_FIREBOMB, 3s);
-                    break;
-                case EVENT_MAGUS_ICE_NOVA:
-                    me->CastSpell(me, SPELL_ICE_NOVA, false);
-                    events.ScheduleEvent(EVENT_MAGUS_ICE_NOVA, 15s);
-                    break;
-                case EVENT_MAGUS_GRAVITY_WELL:
-                    me->CastSpell(me, SPELL_GRAVITY_WELL, false);
-                    events.ScheduleEvent(EVENT_MAGUS_GRAVITY_WELL, 15s);
-                    break;
-                case EVENT_MAGUS_FAIL_ACHIEVEMENT:
-                    achievement = false;
-                    break;
-                case EVENT_MAGUS_RELOCATE:
-                    me->NearTeleportTo(505.04f, 88.915f, -16.13f, 2.98f);
-                    break;
-                case EVENT_MAGUS_MERGED:
-                    me->CastSpell(me, SPELL_TELESTRA_BACK, true);
-                    me->RemoveAllAuras();
-                    Talk(SAY_MERGE);
-                    break;
-            }
-
-            DoMeleeAttackIfReady();
-        }
-    };
+        DoMeleeAttackIfReady();
+    }
 };
 
 class spell_boss_magus_telestra_summon_telestra_clones_aura : public AuraScript
@@ -331,7 +321,7 @@ public:
 
 void AddSC_boss_magus_telestra()
 {
-    new boss_magus_telestra();
+    RegisterNexusCreatureAI(boss_magus_telestra);
     RegisterSpellScript(spell_boss_magus_telestra_summon_telestra_clones_aura);
     RegisterSpellScript(spell_boss_magus_telestra_gravity_well);
     new achievement_split_personality();

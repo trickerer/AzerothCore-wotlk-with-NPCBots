@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -124,6 +124,11 @@ bool TaskScheduler::IsGroupScheduled(group_t const group)
     return _task_holder.IsGroupQueued(group);
 }
 
+Milliseconds TaskScheduler::GetNextGroupOccurrence(group_t const group) const
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(_task_holder.GetNextGroupOccurrence(group) - clock_t::now());
+}
+
 void TaskScheduler::TaskQueue::Push(TaskContainer&& task)
 {
     container.insert(task);
@@ -189,6 +194,15 @@ bool TaskScheduler::TaskQueue::IsGroupQueued(group_t const group)
     return false;
 }
 
+TaskScheduler::timepoint_t TaskScheduler::TaskQueue::GetNextGroupOccurrence(group_t const group) const
+{
+    TaskScheduler::timepoint_t next = TaskScheduler::timepoint_t::max();
+    for (auto const& task : container)
+        if (task->IsInGroup(group) && task->_end < next)
+            next = task->_end;
+    return next;
+}
+
 bool TaskScheduler::TaskQueue::IsEmpty() const
 {
     return container.empty();
@@ -229,6 +243,11 @@ TaskContext& TaskContext::ClearGroup()
 TaskScheduler::repeated_t TaskContext::GetRepeatCounter() const
 {
     return _task->_repeated;
+}
+
+TaskScheduler::timepoint_t TaskContext::GetNextOccurrence() const
+{
+    return _task->_end;
 }
 
 TaskContext& TaskContext::Async(std::function<void()> const& callable)

@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -31,17 +31,19 @@ enum DataTypes
     DATA_LEOTHERAS_THE_BLIND                = 2,
     DATA_FATHOM_LORD_KARATHRESS             = 3,
     DATA_MOROGRIM_TIDEWALKER                = 4,
-    DATA_BRIDGE_EMERGED                     = 5,
-    DATA_LADY_VASHJ                         = 6,
-    MAX_ENCOUNTERS                          = 7,
+    DATA_LADY_VASHJ                         = 5,
+    MAX_ENCOUNTERS                          = 6,
 
     DATA_PLATFORM_KEEPER_RESPAWNED          = 20,
     DATA_PLATFORM_KEEPER_DIED               = 21,
     DATA_ALIVE_KEEPERS                      = 22,
-    DATA_BRIDGE_ACTIVATED                   = 23,
-    DATA_ACTIVATE_SHIELD                    = 24,
-    DATA_STRANGE_POOL                       = 25,
-    DATA_SEER_OLUM                          = 26
+    DATA_ACTIVATE_SHIELD                    = 23,
+    DATA_STRANGE_POOL                       = 24,
+    DATA_SEER_OLUM                          = 25,
+    DATA_CONSOLE                            = 26,  // Used by the console SAI.
+    DATA_BRIDGE_PART1                       = 27,  // Used by the console SAI.
+    DATA_BRIDGE_PART2                       = 28,  // Used by the console SAI.
+    DATA_BRIDGE_PART3                       = 29   // Used by the console SAI.
 };
 
 enum SSNPCs
@@ -67,6 +69,7 @@ enum SSNPCs
     NPC_COILFANG_STRIDER                    = 22056,
     NPC_TAINTED_ELEMENTAL                   = 22009,
     NPC_TOXIC_SPOREBAT                      = 22140,
+    NPC_COILFANG_FRENZY                     = 21508,
 
     GO_LADY_VASHJ_BRIDGE_CONSOLE            = 184568,
     GO_COILFANG_BRIDGE1                     = 184203,
@@ -86,13 +89,18 @@ enum SSSpells
     SPELL_SUMMON_SERPENTSHRINE_PARASITE     = 39045,
     SPELL_RAMPART_INFECTION                 = 39042,
     SPELL_SCALDING_WATER                    = 37284,
-    SPELL_FRENZY_WATER                      = 37026
+
+    // SPELL_SERVERSIDE_COILFANG_WATER      = 37025, // Dummy Aura, unused
+    SPELL_SERVERSIDE_SUMMON_FRENZY          = 37026,
+    SPELL_SERVERSIDE_FRENZY_WATER_PERIODIC  = 37280
 };
 
-enum KeeperCount
+enum SSNPCCount
 {
-  MIN_KEEPER_COUNT = 0,
-  MAX_KEEPER_COUNT = 24
+    MIN_KEEPER_COUNT = 0,
+    MAX_KEEPER_COUNT = 54,
+
+    MAX_FRENZY_COUNT = 50
 };
 
 template <class AI, class T>

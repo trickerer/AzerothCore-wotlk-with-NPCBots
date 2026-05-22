@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -21,8 +21,9 @@
 #include "Define.h"
 #include "Duration.h"
 #include "MPSCQueue.h"
+#include <boost/asio/steady_timer.hpp>
 #include <functional>
-#include <memory>
+#include <memory> // NOTE: this import is NEEDED (even though some IDEs report it as unused)
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -30,7 +31,6 @@
 namespace Acore::Asio
 {
     class IoContext;
-    class DeadlineTimer;
 }
 
 enum MetricDataType
@@ -62,8 +62,8 @@ private:
     std::iostream& GetDataStream() { return *_dataStream; }
     std::unique_ptr<std::iostream> _dataStream;
     MPSCQueue<MetricData> _queuedData;
-    std::unique_ptr<Acore::Asio::DeadlineTimer> _batchTimer;
-    std::unique_ptr<Acore::Asio::DeadlineTimer> _overallStatusTimer;
+    std::unique_ptr<boost::asio::steady_timer> _batchTimer;
+    std::unique_ptr<boost::asio::steady_timer> _overallStatusTimer;
     int32 _updateInterval = 0;
     int32 _overallStatusTimerInterval = 0;
     bool _enabled = false;
@@ -71,6 +71,10 @@ private:
     std::string _hostname;
     std::string _port;
     std::string _databaseName;
+    bool _useV2 = false;
+    std::string _org;
+    std::string _bucket;
+    std::string _token;
     std::function<void()> _overallStatusLogger;
     std::string _realmName;
     std::unordered_map<std::string, int64> _thresholds;

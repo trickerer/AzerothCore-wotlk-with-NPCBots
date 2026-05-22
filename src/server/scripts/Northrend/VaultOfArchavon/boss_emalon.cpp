@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -29,10 +29,8 @@ enum Spells
     SPELL_OVERCHARGE                = 64218,
     SPELL_BERSERK                   = 26662,
 
-    SPELL_CHAIN_LIGHTNING_10        = 64213,
-    SPELL_CHAIN_LIGHTNING_25        = 64215,
-    SPELL_LIGHTNING_NOVA_10         = 64216,
-    SPELL_LIGHTNING_NOVA_25         = 65279,
+    SPELL_CHAIN_LIGHTNING           = 64213,
+    SPELL_LIGHTNING_NOVA            = 64216,
 };
 
 enum Events
@@ -171,11 +169,11 @@ public:
             {
                 case EVENT_CHAIN_LIGHTNING:
                     if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
-                        me->CastSpell(target, RAID_MODE(SPELL_CHAIN_LIGHTNING_10, SPELL_CHAIN_LIGHTNING_25), false);
+                        me->CastSpell(target, SPELL_CHAIN_LIGHTNING, false);
                     events.Repeat(25s);
                     break;
                 case EVENT_LIGHTNING_NOVA:
-                    me->CastSpell(me, RAID_MODE(SPELL_LIGHTNING_NOVA_10, SPELL_LIGHTNING_NOVA_25), false);
+                    me->CastSpell(me, SPELL_LIGHTNING_NOVA, false);
                     events.Repeat(40s);
                     break;
                 case EVENT_OVERCHARGE:
@@ -205,69 +203,52 @@ public:
     }
 };
 
-class spell_voa_overcharge : public SpellScriptLoader
+class spell_voa_overcharge_aura : public AuraScript
 {
-public:
-    spell_voa_overcharge() : SpellScriptLoader("spell_voa_overcharge") { }
+    PrepareAuraScript(spell_voa_overcharge_aura);
 
-    class spell_voa_overcharge_AuraScript : public AuraScript
+    bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        PrepareAuraScript(spell_voa_overcharge_AuraScript);
+        return ValidateSpellInfo({ SPELL_OVERCHARGED_BLAST });
+    }
 
-        void HandlePeriodicDummy(AuraEffect const*  /*aurEff*/)
+    void HandlePeriodicDummy(AuraEffect const*  /*aurEff*/)
+    {
+        Unit* target = GetTarget();
+        if (target->IsCreature() && GetAura()->GetStackAmount() >= 10)
         {
-            Unit* target = GetTarget();
-            if (target->IsCreature() && GetAura()->GetStackAmount() >= 10)
-            {
-                target->CastSpell(target, SPELL_OVERCHARGED_BLAST, true);
-                Unit::Kill(target, target, false);
-            }
-
-            PreventDefaultAction();
+            target->CastSpell(target, SPELL_OVERCHARGED_BLAST, true);
+            Unit::Kill(target, target, false);
         }
 
-        void Register() override
-        {
-            OnEffectPeriodic += AuraEffectPeriodicFn(spell_voa_overcharge_AuraScript::HandlePeriodicDummy, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);
-        }
-    };
+        PreventDefaultAction();
+    }
 
-    AuraScript* GetAuraScript() const override
+    void Register() override
     {
-        return new spell_voa_overcharge_AuraScript();
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_voa_overcharge_aura::HandlePeriodicDummy, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
-class spell_voa_lightning_nova : public SpellScriptLoader
+class spell_voa_lightning_nova : public SpellScript
 {
-public:
-    spell_voa_lightning_nova() : SpellScriptLoader("spell_voa_lightning_nova") { }
+    PrepareSpellScript(spell_voa_lightning_nova);
 
-    class spell_voa_lightning_nova_SpellScript : public SpellScript
+    void HandleOnHit()
     {
-        PrepareSpellScript(spell_voa_lightning_nova_SpellScript);
-
-        void HandleOnHit()
+        int32 damage = 0;
+        if (Unit* target = GetHitUnit())
         {
-            int32 damage = 0;
-            if (Unit* target = GetHitUnit())
-            {
-                float dist = target->GetDistance(GetCaster());
-                damage = int32(GetHitDamage() * (70.0f - std::min(70.0f, dist)) / 70.0f);
-            }
-
-            SetHitDamage(damage);
+            float dist = target->GetDistance(GetCaster());
+            damage = int32(GetHitDamage() * (70.0f - std::min(70.0f, dist)) / 70.0f);
         }
 
-        void Register() override
-        {
-            OnHit += SpellHitFn(spell_voa_lightning_nova_SpellScript::HandleOnHit);
-        }
-    };
+        SetHitDamage(damage);
+    }
 
-    SpellScript* GetSpellScript() const override
+    void Register() override
     {
-        return new spell_voa_lightning_nova_SpellScript();
+        OnHit += SpellHitFn(spell_voa_lightning_nova::HandleOnHit);
     }
 };
 
@@ -275,6 +256,6 @@ void AddSC_boss_emalon()
 {
     new boss_emalon();
 
-    new spell_voa_overcharge();
-    new spell_voa_lightning_nova();
+    RegisterSpellScript(spell_voa_overcharge_aura);
+    RegisterSpellScript(spell_voa_lightning_nova);
 }

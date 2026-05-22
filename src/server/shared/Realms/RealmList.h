@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -20,9 +20,21 @@
 
 #include "Define.h"
 #include "Realm.h"
+#include <boost/asio/steady_timer.hpp>
 #include <array>
 #include <map>
+#include <memory> // NOTE: this import is NEEDED (even though some IDEs report it as unused)
 #include <vector>
+
+namespace Acore::Asio
+{
+    class IoContext;
+}
+
+namespace boost::system
+{
+    class error_code;
+}
 
 struct RealmBuildInfo
 {
@@ -34,11 +46,6 @@ struct RealmBuildInfo
     std::array<uint8, 20> WindowsHash;
     std::array<uint8, 20> MacHash;
 };
-
-namespace boost::system
-{
-    class error_code;
-}
 
 /// Storage object for the list of realms on the server
 class AC_SHARED_API RealmList
@@ -69,7 +76,7 @@ private:
     std::vector<RealmBuildInfo> _builds;
     RealmMap _realms;
     uint32 _updateInterval{0};
-    std::unique_ptr<Acore::Asio::DeadlineTimer> _updateTimer;
+    std::unique_ptr<boost::asio::steady_timer> _updateTimer;
     std::unique_ptr<Acore::Asio::Resolver> _resolver;
 };
 

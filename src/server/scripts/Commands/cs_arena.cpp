@@ -1,31 +1,27 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* ScriptData
-Name: arena_commandscript
-%Complete: 100
-Comment: All arena team related commands
-Category: commandscripts
-EndScriptData */
-
+#include "ArenaSeasonMgr.h"
+#include "ArenaTeamFilter.h"
 #include "ArenaTeamMgr.h"
 #include "Chat.h"
 #include "CommandScript.h"
 #include "Player.h"
+#include "RBAC.h"
 
 using namespace Acore::ChatCommands;
 
@@ -36,14 +32,28 @@ public:
 
     ChatCommandTable GetCommands() const override
     {
+        static ChatCommandTable arenaSeasonSetCommandTable =
+        {
+            { "state",          HandleArenaSeasonSetStateCommand, rbac::RBAC_PERM_COMMAND_ARENA_SEASON, Console::Yes }
+        };
+
+        static ChatCommandTable arenaSeasonCommandTable =
+        {
+            { "reward",         HandleArenaSeasonRewardCommand,      rbac::RBAC_PERM_COMMAND_ARENA_SEASON_REWARD,      Console::Yes },
+            { "deleteteams",    HandleArenaSeasonDeleteTeamsCommand, rbac::RBAC_PERM_COMMAND_ARENA_SEASON_DELETETEAMS,  Console::Yes },
+            { "start",          HandleArenaSeasonStartCommand,       rbac::RBAC_PERM_COMMAND_ARENA_SEASON_START,        Console::Yes },
+            { "set",            arenaSeasonSetCommandTable }
+        };
+
         static ChatCommandTable arenaCommandTable =
         {
-            { "create",         HandleArenaCreateCommand,   SEC_ADMINISTRATOR, Console::Yes },
-            { "disband",        HandleArenaDisbandCommand,  SEC_ADMINISTRATOR, Console::Yes },
-            { "rename",         HandleArenaRenameCommand,   SEC_ADMINISTRATOR, Console::Yes },
-            { "captain",        HandleArenaCaptainCommand,  SEC_ADMINISTRATOR, Console::No  },
-            { "info",           HandleArenaInfoCommand,     SEC_GAMEMASTER,    Console::Yes },
-            { "lookup",         HandleArenaLookupCommand,   SEC_GAMEMASTER,    Console::No  },
+            { "create",         HandleArenaCreateCommand,   rbac::RBAC_PERM_COMMAND_ARENA_CREATE,  Console::Yes },
+            { "disband",        HandleArenaDisbandCommand,  rbac::RBAC_PERM_COMMAND_ARENA_DISBAND, Console::Yes },
+            { "rename",         HandleArenaRenameCommand,   rbac::RBAC_PERM_COMMAND_ARENA_RENAME,  Console::Yes },
+            { "captain",        HandleArenaCaptainCommand,  rbac::RBAC_PERM_COMMAND_ARENA_CAPTAIN, Console::No  },
+            { "info",           HandleArenaInfoCommand,     rbac::RBAC_PERM_COMMAND_ARENA_INFO,    Console::Yes },
+            { "lookup",         HandleArenaLookupCommand,   rbac::RBAC_PERM_COMMAND_ARENA_LOOKUP,  Console::Yes },
+            { "season",         arenaSeasonCommandTable  }
         };
 
         static ChatCommandTable commandTable =
@@ -200,7 +210,7 @@ public:
         handler->PSendSysMessage(LANG_ARENA_INFO_HEADER, arena->GetName(), arena->GetId(), arena->GetRating(), arena->GetType(), arena->GetType());
 
         for (auto const& itr : arena->GetMembers())
-            handler->PSendSysMessage(LANG_ARENA_INFO_MEMBERS, itr.Name, itr.Guid.ToString(), itr.PersonalRating, (arena->GetCaptain() == itr.Guid ? "- Captain" : ""));
+            handler->PSendSysMessage(LANG_ARENA_INFO_MEMBERS, itr.Name, itr.Guid.GetCounter(), itr.PersonalRating, (arena->GetCaptain() == itr.Guid ? "Captain" : ""));
 
         return true;
     }
@@ -215,20 +225,94 @@ public:
         {
             if (StringContainsStringI(team->GetName(), needle))
             {
-                if (handler->GetSession())
-                {
-                    handler->PSendSysMessage(LANG_ARENA_LOOKUP, team->GetName(), team->GetId(), team->GetType(), team->GetType());
-                    found = true;
-                    continue;
-                }
+                handler->PSendSysMessage(LANG_ARENA_LOOKUP, team->GetName(), team->GetId(), team->GetType(), team->GetType());
+                found = true;
+                continue;
             }
         }
 
         if (!found)
-            handler->PSendSysMessage(LANG_ARENA_ERROR_NAME_NOT_FOUND, std::string(needle));
+        {
+            handler->SendErrorMessage(LANG_ARENA_ERROR_NAME_NOT_FOUND, std::string(needle));
+            return false;
+        }
 
         return true;
     }
+
+    static bool HandleArenaSeasonRewardCommand(ChatHandler* handler, std::string teamsFilterStr)
+    {
+        std::unique_ptr<ArenaTeamFilter> uniqueFilter = ArenaTeamFilterFactoryByUserInput().CreateFilterByUserInput(teamsFilterStr);
+        if (!uniqueFilter)
+        {
+            handler->PSendSysMessage("Invalid filter. Please check your input.");
+            return false;
+        }
+
+        std::shared_ptr<ArenaTeamFilter> sharedFilter = std::move(uniqueFilter);
+
+        if (!sArenaSeasonMgr->CanDeleteArenaTeams())
+        {
+            handler->PSendSysMessage("Cannot proceed. Make sure there are no active arenas and that rewards exist for the current season.");
+            handler->PSendSysMessage("Hint: You can disable the arena queue using the following command: .arena season set state 0");
+            return false;
+        }
+
+        handler->PSendSysMessage("Distributing rewards for arena teams (types: "+teamsFilterStr+")...");
+        sArenaSeasonMgr->RewardTeamsForTheSeason(sharedFilter);
+        handler->PSendSysMessage("Rewards distributed.");
+        return true;
+    }
+
+    static bool HandleArenaSeasonDeleteTeamsCommand(ChatHandler* handler)
+    {
+        handler->PSendSysMessage("Deleting arena teams...");
+        sArenaSeasonMgr->DeleteArenaTeams();
+        handler->PSendSysMessage("Arena teams deleted.");
+        return true;
+    }
+
+    static bool HandleArenaSeasonStartCommand(ChatHandler* handler, uint8 seasonId)
+    {
+        if (seasonId == sArenaSeasonMgr->GetCurrentSeason())
+        {
+            sArenaSeasonMgr->SetSeasonState(ARENA_SEASON_STATE_IN_PROGRESS);
+            handler->PSendSysMessage("Arena season updated.");
+            return true;
+        }
+
+        const uint8 maxSeasonId = 8;
+        if (seasonId > maxSeasonId)
+        {
+            handler->PSendSysMessage("Invalid season id.");
+            return false;
+        }
+
+        sArenaSeasonMgr->ChangeCurrentSeason(seasonId);
+        handler->PSendSysMessage("Arena season changed to season {}.", seasonId);
+        return true;
+    }
+
+    static bool HandleArenaSeasonSetStateCommand(ChatHandler* handler, uint8 state)
+    {
+        ArenaSeasonState seasonState;
+        switch (state) {
+            case ARENA_SEASON_STATE_DISABLED:
+                seasonState = ARENA_SEASON_STATE_DISABLED;
+                break;
+            case ARENA_SEASON_STATE_IN_PROGRESS:
+                seasonState = ARENA_SEASON_STATE_IN_PROGRESS;
+                break;
+            default:
+                handler->PSendSysMessage("Invalid state.");
+                return false;
+        }
+
+        sArenaSeasonMgr->SetSeasonState(seasonState);
+        handler->PSendSysMessage("Arena season updated.");
+        return true;
+    }
+
 };
 
 void AddSC_arena_commandscript()

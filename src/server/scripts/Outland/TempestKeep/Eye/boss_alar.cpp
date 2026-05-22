@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -72,11 +72,10 @@ enum Misc
 
     EVENT_RELOCATE_MIDDLE       = 1,
     EVENT_REBIRTH               = 2,
-    EVENT_SPELL_BERSERK         = 3,
 
-    EVENT_MOVE_TO_PHASE_2       = 4,
-    EVENT_FINISH_DIVE           = 5,
-    EVENT_INVISIBLE             = 6
+    EVENT_MOVE_TO_PHASE_2       = 3,
+    EVENT_FINISH_DIVE           = 4,
+    EVENT_INVISIBLE             = 5
 };
 
 enum GroupAlar
@@ -99,10 +98,6 @@ struct boss_alar : public BossAI
     boss_alar(Creature* creature) : BossAI(creature, DATA_ALAR)
     {
         me->SetCombatMovement(false);
-        scheduler.SetValidator([this]
-        {
-            return !me->HasUnitState(UNIT_STATE_CASTING);
-        });
     }
 
     void Reset() override
@@ -121,15 +116,14 @@ struct boss_alar : public BossAI
         me->SetModelVisible(true);
         me->SetReactState(REACT_AGGRESSIVE);
         ConstructWaypointsAndMove();
+        me->m_Events.KillAllEvents(false);
     }
 
     void JustReachedHome() override
     {
         BossAI::JustReachedHome();
         if (me->IsEngaged())
-        {
             ConstructWaypointsAndMove();
-        }
     }
 
     void JustEngagedWith(Unit* who) override
@@ -142,7 +136,7 @@ struct boss_alar : public BossAI
                 _noQuillTimes = 0;
                 _platformRoll = RAND(0, 1);
                 _platform = _platformRoll ? 0 : 3;
-                me->GetMotionMaster()->MovePoint(POINT_QUILL, alarPoints[POINT_QUILL], false, true);
+                me->GetMotionMaster()->MovePoint(POINT_QUILL, alarPoints[POINT_QUILL], FORCED_MOVEMENT_NONE, 0.f, false, true);
                 _platformMoveRepeatTimer = 16s;
             }
             else
@@ -152,12 +146,13 @@ struct boss_alar : public BossAI
                     me->SetOrientation(alarPoints[_platform].GetOrientation());
                     SpawnPhoenixes(1, me);
                 }
-                me->GetMotionMaster()->MovePoint(POINT_PLATFORM, alarPoints[_platform], false, true);
+                me->GetMotionMaster()->MovePoint(POINT_PLATFORM, alarPoints[_platform], FORCED_MOVEMENT_NONE, 0.f, false, true);
                 _platform = (_platform+1)%4;
                 _platformMoveRepeatTimer = 30s;
             }
             context.Repeat(_platformMoveRepeatTimer);
         });
+
         ScheduleMainSpellAttack(0s);
     }
 
@@ -172,16 +167,9 @@ struct boss_alar : public BossAI
     void EnterEvadeMode(EvadeReason why) override
     {
         if (why == EVADE_REASON_BOUNDARY)
-        {
             BossAI::EnterEvadeMode(why);
-        }
-        else
-        {
-            if (me->GetThreatMgr().GetThreatList().empty())
-            {
-                BossAI::EnterEvadeMode(why);
-            }
-        }
+        else if (me->GetThreatMgr().IsThreatListEmpty(true))
+            BossAI::EnterEvadeMode(why);
     }
 
     void JustDied(Unit* killer) override
@@ -189,19 +177,11 @@ struct boss_alar : public BossAI
         BossAI::JustDied(killer);
         me->SetModelVisible(true);
 
-        if (Map* map = me->GetMap())
+        me->GetMap()->DoForAllPlayers([&](Player* player)
         {
-            map->DoForAllPlayers([&](Player* player)
-            {
-                if (player->GetQuestStatus(QUEST_RUSE_OF_THE_ASHTONGUE) == QUEST_STATUS_INCOMPLETE)
-                {
-                    if (player->HasAura(SPELL_ASHTONGUE_RUSE))
-                    {
-                        player->AreaExploredOrEventHappens(QUEST_RUSE_OF_THE_ASHTONGUE);
-                    }
-                }
-            });
-        }
+            if (player->GetQuestStatus(QUEST_RUSE_OF_THE_ASHTONGUE) == QUEST_STATUS_INCOMPLETE && player->HasAura(SPELL_ASHTONGUE_RUSE))
+                player->AreaExploredOrEventHappens(QUEST_RUSE_OF_THE_ASHTONGUE);
+        });
     }
 
     void MoveInLineOfSight(Unit* /*who*/) override { }
@@ -235,7 +215,7 @@ struct boss_alar : public BossAI
                     _noMelee = false;
                     me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
                     _platform = POINT_MIDDLE;
-                    me->GetMotionMaster()->MoveChase(me->GetVictim());
+                    me->ResumeChasingVictim();
                     ScheduleAbilities();
                 });
             }
@@ -270,19 +250,18 @@ struct boss_alar : public BossAI
         {
             // find spell from sniffs?
             if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 50.0f, true))
-            {
                 me->SummonCreature(NPC_FLAME_PATCH, *target, TEMPSUMMON_TIMED_DESPAWN, 2 * MINUTE * IN_MILLISECONDS);
-            }
         }, 30s);
         ScheduleTimedEvent(34s, [&]
         {
-            me->GetMotionMaster()->MovePoint(POINT_DIVE, alarPoints[POINT_DIVE], false, true);
+            me->GetMotionMaster()->MovePoint(POINT_DIVE, alarPoints[POINT_DIVE], FORCED_MOVEMENT_NONE, 0.f, false, true);
             scheduler.DelayAll(15s);
         }, 57s);
-        ScheduleUniqueTimedEvent(10min, [&]
-        {
-            DoCastSelf(SPELL_BERSERK);
-        }, EVENT_SPELL_BERSERK);
+
+        me->m_Events.AddEventAtOffset([&] {
+            DoCastSelf(SPELL_BERSERK, true);
+        }, 10min);
+
         ScheduleMainSpellAttack(0s);
     }
 
@@ -304,16 +283,14 @@ struct boss_alar : public BossAI
         scheduler.Schedule(2s, [this](TaskContext)
         {
             if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 110.0f, true))
-            {
                 SpawnPhoenixes(2, target);
-            }
         }).Schedule(6s, [this](TaskContext)
         {
             me->SetModelVisible(true);
             DoCastSelf(SPELL_REBIRTH_DIVE);
         }).Schedule(10s, [this](TaskContext)
         {
-            me->GetMotionMaster()->MoveChase(me->GetVictim());
+            me->ResumeChasingVictim();
             _noMelee = false;
         });
         if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 90.0f, true))
@@ -331,9 +308,8 @@ struct boss_alar : public BossAI
         if (type != POINT_MOTION_TYPE)
         {
             if (type == ESCORT_MOTION_TYPE && me->movespline->Finalized() && !me->IsInCombat())
-            {
                 ConstructWaypointsAndMove();
-            }
+
             return;
         }
 
@@ -366,9 +342,8 @@ struct boss_alar : public BossAI
         scheduler.Schedule(timer, GROUP_FLAME_BUFFET, [this](TaskContext context)
         {
             if (!me->SelectNearestTarget(me->GetCombatReach()) && !me->isMoving())
-            {
-                DoCastVictim(SPELL_FLAME_BUFFET);
-            }
+                DoCastAOE(SPELL_FLAME_BUFFET);
+
             context.Repeat(2s);
         });
     }
@@ -376,39 +351,23 @@ struct boss_alar : public BossAI
     void ConstructWaypointsAndMove()
     {
         me->StopMoving();
-        if (WaypointPath const* i_path = sWaypointMgr->GetPath(me->GetWaypointPath()))
-        {
-            Movement::PointsArray pathPoints;
-            pathPoints.push_back(G3D::Vector3(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ()));
-            for (uint8 i = 0; i < i_path->size(); ++i)
-            {
-                WaypointData const* node = i_path->at(i);
-                pathPoints.push_back(G3D::Vector3(node->x, node->y, node->z));
-            }
-            me->GetMotionMaster()->MoveSplinePath(&pathPoints);
-        }
+        me->GetMotionMaster()->MovePath(me->GetWaypointPath(), FORCED_MOVEMENT_NONE, PathSource::WAYPOINT_MGR);
     }
 
     void UpdateAI(uint32 diff) override
     {
         _transitionScheduler.Update(diff);
 
-        if (!UpdateVictim())
-        {
-            return;
-        }
-
         scheduler.Update(diff);
 
-        if (me->HasUnitState(UNIT_STATE_CASTING))
-        {
+        if (!UpdateVictim())
             return;
-        }
+
+        if (me->HasUnitState(UNIT_STATE_CASTING))
+            return;
 
         if (!_noMelee)
-        {
             DoMeleeAttackIfReady();
-        }
     }
 
     Position DeterminePhoenixPosition(Position playerPosition)
@@ -479,10 +438,10 @@ class spell_alar_flame_quills : public AuraScript
 
         // 24 spells in total
         for (uint8 i = 0; i < 21; ++i)
-            GetUnitOwner()->m_Events.AddEvent(new CastQuill(GetUnitOwner(), SPELL_QUILL_MISSILE_1 + i), GetUnitOwner()->m_Events.CalculateTime(i * 40));
-        GetUnitOwner()->m_Events.AddEvent(new CastQuill(GetUnitOwner(), SPELL_QUILL_MISSILE_2 + 0), GetUnitOwner()->m_Events.CalculateTime(22 * 40));
-        GetUnitOwner()->m_Events.AddEvent(new CastQuill(GetUnitOwner(), SPELL_QUILL_MISSILE_2 + 1), GetUnitOwner()->m_Events.CalculateTime(23 * 40));
-        GetUnitOwner()->m_Events.AddEvent(new CastQuill(GetUnitOwner(), SPELL_QUILL_MISSILE_2 + 2), GetUnitOwner()->m_Events.CalculateTime(24 * 40));
+            GetUnitOwner()->m_Events.AddEventAtOffset(new CastQuill(GetUnitOwner(), SPELL_QUILL_MISSILE_1 + i), Milliseconds(i * 40));
+        GetUnitOwner()->m_Events.AddEventAtOffset(new CastQuill(GetUnitOwner(), SPELL_QUILL_MISSILE_2 + 0), Milliseconds(22 * 40));
+        GetUnitOwner()->m_Events.AddEventAtOffset(new CastQuill(GetUnitOwner(), SPELL_QUILL_MISSILE_2 + 1), Milliseconds(23 * 40));
+        GetUnitOwner()->m_Events.AddEventAtOffset(new CastQuill(GetUnitOwner(), SPELL_QUILL_MISSILE_2 + 2), Milliseconds(24 * 40));
     }
 
     void Register() override
@@ -498,13 +457,9 @@ class spell_alar_ember_blast : public SpellScript
     void HandleCast()
     {
         if (InstanceScript* instance = GetCaster()->GetInstanceScript())
-        {
             if (Creature* alar = instance->GetCreature(DATA_ALAR))
-            {
                 if (!alar->HasAura(SPELL_MODEL_VISIBILITY))
                     Unit::DealDamage(GetCaster(), alar, alar->CountPctFromMaxHealth(2));
-            }
-        }
     }
 
     void Register() override

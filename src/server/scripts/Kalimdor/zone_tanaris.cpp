@@ -1,41 +1,25 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* ScriptData
-SDName: Tanaris
-SD%Complete: 80
-SDComment: Quest support: 1560, 2954, 4005, 10277, 10279(Special flight path). Noggenfogger vendor
-SDCategory: Tanaris
-EndScriptData */
-
-/* ContentData
-npc_aquementas
-npc_custodian_of_time
-npc_steward_of_time
-npc_stone_watcher_of_norgannon
-npc_tooga
-EndContentData */
-
 #include "CreatureScript.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
 #include "ScriptedEscortAI.h"
 #include "ScriptedFollowerAI.h"
-#include "ScriptedGossip.h"
 
 /*######
 ## npc_aquementas
@@ -183,6 +167,7 @@ public:
     {
         npc_custodian_of_timeAI(Creature* creature) : npc_escortAI(creature) { }
 
+        using CreatureAI::WaypointReached;
         void WaypointReached(uint32 waypointId) override
         {
             if (Player* player = GetPlayerForEscort())
@@ -242,16 +227,28 @@ public:
                         break;
                     case 24:
                         Talk(WHISPER_CUSTODIAN_14, player);
-                        DoCast(player, 34883);
-                        // below here is temporary workaround, to be removed when spell works properly
-                        player->AreaExploredOrEventHappens(10277);
+                        if (Group* group = player->GetGroup())
+                        {
+                            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+                            {
+                                Player* player = itr->GetSource();
+
+                                // for any leave or dead (with not released body) group member at appropriate distance
+                                if (player && player->IsAtGroupRewardDistance(me) && !player->GetCorpse())
+                                    DoCast(player, 34883); // QID 10277
+
+                            }
+                        }
+                        else
+                        {
+                            DoCast(player, 34883); // QID 10277
+                        }
                         break;
                 }
             }
         }
 
         void MoveInLineOfSight(Unit* who) override
-
         {
             if (HasEscortState(STATE_ESCORT_ESCORTING))
                 return;
@@ -263,7 +260,8 @@ public:
                     float Radius = 10.0f;
                     if (me->IsWithinDistInMap(who, Radius))
                     {
-                        Start(false, false, who->GetGUID());
+                        me->SetWalk(true);
+                        Start(false, who->GetGUID());
                     }
                 }
             }
@@ -294,95 +292,6 @@ public:
             player->CastSpell(player, 34891, true);               //(Flight through Caverns)
 
         return false;
-    }
-
-    bool OnGossipSelect(Player* player, Creature* /*creature*/, uint32 /*sender*/, uint32 action) override
-    {
-        ClearGossipMenuFor(player);
-        if (action == GOSSIP_ACTION_INFO_DEF + 1)
-            player->CastSpell(player, 34891, true);               //(Flight through Caverns)
-
-        return true;
-    }
-
-    bool OnGossipHello(Player* player, Creature* creature) override
-    {
-        if (creature->IsQuestGiver())
-        {
-            player->PrepareQuestMenu(creature->GetGUID());
-        }
-
-        if (player->GetQuestStatus(10279) == QUEST_STATUS_INCOMPLETE || player->GetQuestRewardStatus(10279))
-        {
-            AddGossipItemFor(player, 8072, 0, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
-            SendGossipMenuFor(player, 9978, creature->GetGUID());
-        }
-        else
-        {
-            SendGossipMenuFor(player, 9977, creature->GetGUID());
-        }
-
-        return true;
-    }
-};
-
-/*######
-## npc_stone_watcher_of_norgannon
-######*/
-
-class npc_stone_watcher_of_norgannon : public CreatureScript
-{
-public:
-    npc_stone_watcher_of_norgannon() : CreatureScript("npc_stone_watcher_of_norgannon") { }
-
-    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
-    {
-        ClearGossipMenuFor(player);
-        switch (action)
-        {
-            case GOSSIP_ACTION_INFO_DEF:
-                AddGossipItemFor(player, 57001, 0, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
-                SendGossipMenuFor(player, 1675, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+1:
-                AddGossipItemFor(player, 57002, 0, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 2);
-                SendGossipMenuFor(player, 1676, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+2:
-                AddGossipItemFor(player, 57003, 0, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 3);
-                SendGossipMenuFor(player, 1677, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+3:
-                AddGossipItemFor(player, 57004, 0, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 4);
-                SendGossipMenuFor(player, 1678, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+4:
-                AddGossipItemFor(player, 57005, 0, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 5);
-                SendGossipMenuFor(player, 1679, creature->GetGUID());
-                break;
-            case GOSSIP_ACTION_INFO_DEF+5:
-                CloseGossipMenuFor(player);
-                player->AreaExploredOrEventHappens(2954);
-                break;
-        }
-        return true;
-    }
-
-    bool OnGossipHello(Player* player, Creature* creature) override
-    {
-        if (creature->IsQuestGiver())
-        {
-            player->PrepareQuestMenu(creature->GetGUID());
-        }
-
-        if (player->GetQuestStatus(2954) == QUEST_STATUS_INCOMPLETE)
-        {
-            AddGossipItemFor(player, 57000, 0, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
-        }
-
-        SendGossipMenuFor(player, 1674, creature->GetGUID());
-
-        return true;
     }
 };
 
@@ -553,6 +462,5 @@ void AddSC_tanaris()
     new npc_aquementas();
     new npc_custodian_of_time();
     new npc_steward_of_time();
-    new npc_stone_watcher_of_norgannon();
     new npc_tooga();
 }

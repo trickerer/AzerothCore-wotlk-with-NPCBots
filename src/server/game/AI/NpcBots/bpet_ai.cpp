@@ -1,5 +1,7 @@
 #include "bpet_ai.h"
 #include "bot_GridNotifiers.h"
+#include "botconfig.h"
+#include "botlogtraits.h"
 #include "botmgr.h"
 #include "LFGMgr.h"
 #include "Log.h"
@@ -20,18 +22,18 @@ static constexpr uint32 DK_MAX_PET_POSITIONS = 10;
 static constexpr uint32 DARK_RANGER_MAX_PET_POSITIONS = 5;
 static constexpr uint32 NECROMANCER_MAX_PET_POSITIONS = 12;
 static constexpr uint32 CRYPT_LORD_MAX_PET_POSITIONS = 6;
-float constexpr ShamanPetPositionAnglesByPosNumber[SHAMAN_MAX_PET_POSITIONS] =
+static constexpr float ShamanPetPositionAnglesByPosNumber[SHAMAN_MAX_PET_POSITIONS] =
 {
     0.f,//left
     float(M_PI)//right
 };
-float constexpr DruidPetPositionAnglesByPosNumber[DRUID_MAX_PET_POSITIONS] =
+static constexpr float DruidPetPositionAnglesByPosNumber[DRUID_MAX_PET_POSITIONS] =
 {
     0.f,//left
     float(M_PI)/2,//back
     float(M_PI)//right
 };
-float constexpr DKPetPositionAnglesByPosNumber[DK_MAX_PET_POSITIONS] =
+static constexpr float DKPetPositionAnglesByPosNumber[DK_MAX_PET_POSITIONS] =
 {
     0.f,
     float(M_PI),
@@ -44,7 +46,7 @@ float constexpr DKPetPositionAnglesByPosNumber[DK_MAX_PET_POSITIONS] =
     2.4434609f,//7*M_PI/9
     2.7925268f //8*M_PI/9
 };
-float constexpr DarkRangerPetPositionAnglesByPosNumber[DARK_RANGER_MAX_PET_POSITIONS] =
+static constexpr float DarkRangerPetPositionAnglesByPosNumber[DARK_RANGER_MAX_PET_POSITIONS] =
 {
     0.f,
     float(M_PI),
@@ -52,7 +54,7 @@ float constexpr DarkRangerPetPositionAnglesByPosNumber[DARK_RANGER_MAX_PET_POSIT
     1.5707963f,//2*M_PI/4
     2.3561944f //3*M_PI/4
 };
-float constexpr NecromancerPetPositionAnglesByPosNumber[NECROMANCER_MAX_PET_POSITIONS] =
+static constexpr float NecromancerPetPositionAnglesByPosNumber[NECROMANCER_MAX_PET_POSITIONS] =
 {
     0.f,
     float(M_PI),
@@ -67,7 +69,7 @@ float constexpr NecromancerPetPositionAnglesByPosNumber[NECROMANCER_MAX_PET_POSI
     float(9 *M_PI/11),
     float(10*M_PI/11)
 };
-float constexpr CryptLordPetPositionAnglesByPosNumber[CRYPT_LORD_MAX_PET_POSITIONS] =
+static constexpr float CryptLordPetPositionAnglesByPosNumber[CRYPT_LORD_MAX_PET_POSITIONS] =
 {
     0.7853981f,//1*M_PI/4
     2.3561944f,//3*M_PI/4
@@ -77,45 +79,9 @@ float constexpr CryptLordPetPositionAnglesByPosNumber[CRYPT_LORD_MAX_PET_POSITIO
     3.9269910f //5*M_PI/4
 };
 
-extern uint8 GroupIconsFlags[TARGETICONCOUNT];
-
 static uint16 __rand; //calculated for each bot separately once every updateAI tick
 
-extern bool _botPvP;
-extern uint8 _healTargetIconFlags;
-
-bot_pet_ai::bot_pet_ai(Creature* creature) : CreatureAI(creature)
-{
-    m_botCommandState = BOT_COMMAND_FOLLOW;
-    regenTimer = 0;
-    waitTimer = 0;
-    _moveBehindTimer = 0;
-    indoorsTimer = 0;
-    outdoorsTimer = 0;
-    GC_Timer = 0;
-    lastdiff = 0;
-    _energyFraction = 0.f;
-    _updateTimerMedium = 0;
-    _updateTimerEx1 = urand(12000, 15000);
-    checkAurasTimer = 0;
-
-    _wanderer = false;
-
-    _auraRaidUpdateMask = 0;
-
-    myType = 0;
-    petOwner = nullptr;
-    canUpdate = true;
-}
-bot_pet_ai::~bot_pet_ai()
-{
-    while (!_spells.empty())
-    {
-        BotPetSpellMap::iterator itr = _spells.begin();
-        delete itr->second;
-        _spells.erase(itr);
-    }
-}
+bot_pet_ai::bot_pet_ai(Creature* creature) : CreatureAI(creature), _updateTimerEx1{ urand(12000, 15000) } { }
 
 uint16 bot_pet_ai::Rand() const
 {
@@ -129,7 +95,7 @@ void bot_pet_ai::GenerateRand() const
 
 bool bot_pet_ai::_checkImmunities(Unit const* target, SpellInfo const* spellInfo) const
 {
-    return target && spellInfo && !target->IsImmunedToDamage(spellInfo);
+    return target && spellInfo && !target->IsImmunedToDamage(me, spellInfo);
 }
 //Follow point calculation
 void bot_pet_ai::_calculatePos(Position& pos) const
@@ -234,7 +200,7 @@ void bot_pet_ai::SetBotCommandState(uint32 st, bool force, Position* newpos)
                 else if (pdist > 10.0f)
                     speed = baserunspeed * 1.25f;
             }
-            me->GetMotionMaster()->Add(new PointMovementGenerator<Creature>(1, movepos.m_positionX, movepos.m_positionY, movepos.m_positionZ, speed, 0.f, nullptr, true));
+            me->GetMotionMaster()->Add(new PointMovementGenerator<Creature>(1, movepos.m_positionX, movepos.m_positionY, movepos.m_positionZ, FORCED_MOVEMENT_NONE, speed, 0.f, nullptr, true));
         }
         RemoveBotCommandState(BOT_COMMAND_STAY | BOT_COMMAND_FULLSTOP | BOT_COMMAND_ATTACK | BOT_COMMAND_COMBATRESET);
     }
@@ -268,12 +234,12 @@ void bot_pet_ai::SetBotCommandState(uint32 st, bool force, Position* newpos)
     {
         RemoveBotCommandState(BOT_COMMAND_ATTACK);
     }
-    m_botCommandState |= st;
+    _botCommandState |= st;
 }
 
 void bot_pet_ai::RemoveBotCommandState(uint32 st)
 {
-    m_botCommandState &= ~st;
+    _botCommandState &= ~st;
 }
 // CURES
 //cycle through the group sending members for cure
@@ -293,7 +259,7 @@ void bot_pet_ai::CureGroup(uint32 cureSpell, uint32 diff)
             cureTargets.push_back(petOwner);
 
         if (!cureTargets.empty())
-            me->CastSpell(Acore::Containers::SelectRandomContainerElement(cureTargets), cureSpell, false);
+            me->CastSpell(Bcore::Containers::SelectRandomContainerElement(cureTargets), cureSpell, false);
 
         return;
     }
@@ -303,25 +269,23 @@ void bot_pet_ai::CureGroup(uint32 cureSpell, uint32 diff)
 
     std::list<Unit*> targets;
     Group const* pGroup = petOwner->GetBotOwner()->GetGroup();
-    BotMap const* map;
-    Unit* u;
+    Unit* u = nullptr;
     if (!pGroup)
     {
         if (_canCureTarget(petOwner->GetBotOwner(), cureSpell))
             targets.push_back(petOwner->GetBotOwner());
 
-        map = petOwner->GetBotOwner()->GetBotMgr()->GetBotMap();
-        for (BotMap::const_iterator itr = map->begin(); itr != map->end(); ++itr)
+        for (auto const& [_, bot] : *petOwner->GetBotOwner()->GetBotMgr()->GetBotMap())
         {
-            u = itr->second;
+            u = bot;
             if (!u || !u->IsInWorld() || me->GetMap() != u->FindMap() || !u->IsAlive()) continue;
             if (_canCureTarget(u, cureSpell))
                 targets.push_back(u);
         }
 
-        for (Unit::ControlSet::const_iterator itr = petOwner->GetBotOwner()->m_Controlled.begin(); itr != petOwner->GetBotOwner()->m_Controlled.end(); ++itr)
+        for (Unit* m : petOwner->GetBotOwner()->m_Controlled)
         {
-            u = *itr;
+            u = m;
             if (!u || !u->IsPet() || !u->IsAlive() || me->GetDistance(u) > 30) continue;
 
             if (_canCureTarget(u, cureSpell))
@@ -352,19 +316,18 @@ void bot_pet_ai::CureGroup(uint32 cureSpell, uint32 diff)
 
             if (tPlayer->HaveBot())
             {
-                map = tPlayer->GetBotMgr()->GetBotMap();
-                for (BotMap::const_iterator bitr = map->begin(); bitr != map->end(); ++bitr)
+                for (auto const& [_, bot] : *tPlayer->GetBotMgr()->GetBotMap())
                 {
-                    u = bitr->second;
+                    u = bot;
                     if (!u || !u->IsInWorld() || me->GetMap() != u->FindMap() || !u->IsAlive()) continue;
                     if (_canCureTarget(u, cureSpell))
                         targets.push_back(u);
                 }
             }
 
-            for (Unit::ControlSet::const_iterator citr = tPlayer->m_Controlled.begin(); citr != tPlayer->m_Controlled.end(); ++citr)
+            for (Unit* m : tPlayer->m_Controlled)
             {
-                u = *citr;
+                u = m;
                 if (!u || !u->IsPet() || !u->IsAlive() || me->GetDistance(u) > 30) continue;
 
                 if (_canCureTarget(u, cureSpell))
@@ -374,7 +337,7 @@ void bot_pet_ai::CureGroup(uint32 cureSpell, uint32 diff)
     }
 
     if (!targets.empty())
-        me->CastSpell(Acore::Containers::SelectRandomContainerElement(targets), cureSpell, false);
+        me->CastSpell(Bcore::Containers::SelectRandomContainerElement(targets), cureSpell, false);
 }
 
 // determines if unit has something to cure
@@ -382,7 +345,7 @@ bool bot_pet_ai::_canCureTarget(Unit const* target, uint32 cureSpell) const
 {
     if (me->GetLevel() < 10 || target->GetLevel() < 10) return false;
     if (target->HasUnitState(UNIT_STATE_ISOLATED)) return false;
-    if (target->GetTypeId() == TYPEID_UNIT && target->ToCreature()->IsTempBot()) return false;
+    if (target->IsCreature() && target->ToCreature()->IsTempBot()) return false;
 
     SpellInfo const* info = sSpellMgr->GetSpellInfo(cureSpell);
     if (!info)
@@ -392,7 +355,7 @@ bool bot_pet_ai::_canCureTarget(Unit const* target, uint32 cureSpell) const
         return false;
 
     uint32 dispelMask = 0;
-    for (uint8 i = 0; i != MAX_SPELL_EFFECTS; ++i)
+    for (auto i : NPCBots::index_array<uint8, MAX_SPELL_EFFECTS>)
         if (info->Effects[i].Effect == SPELL_EFFECT_DISPEL)
             dispelMask |= SpellInfo::GetDispelMask(DispelType(info->Effects[i].MiscValue));
 
@@ -408,15 +371,12 @@ bool bot_pet_ai::_canCureTarget(Unit const* target, uint32 cureSpell) const
 void bot_pet_ai::_getBotDispellableAuraList(Unit const* target, Unit const* caster, uint32 dispelMask, std::list<Aura const*> &dispelList) const
 {
     //Unholy Blight prevents diseases from being dispelled
-    if ((dispelMask & (1<<DISPEL_DISEASE)) &&
+    if ((dispelMask & (1u<<DISPEL_DISEASE)) &&
         target->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DEATHKNIGHT, 1494, 0))
-        dispelMask &= ~(1<<DISPEL_DISEASE);
+        dispelMask &= ~(1u<<DISPEL_DISEASE);
 
-    Unit::AuraMap const& auras = target->GetOwnedAuras();
-    for (Unit::AuraMap::const_iterator itr = auras.begin(); itr != auras.end(); ++itr)
+    for (auto const& [_, aura] : target->GetOwnedAuras())
     {
-        Aura const* aura = itr->second;
-
         if (aura->IsPassive())
             continue;
 
@@ -459,13 +419,15 @@ uint32 bot_pet_ai::GetData(uint32 data) const
         case BOTPETAI_MISC_MAX_ATTACKERS:
             return 0;
         default:
-            LOG_DEBUG("entities.unit", "bot_pet_ai::GetData(): unk data type {}!", data);
+            BOT_LOG_DEBUG("entities.unit", "bot_pet_ai::GetData(): unk data type {}!", data);
             return 0;
     }
 }
 
 void bot_pet_ai::SetPetStats(bool force)
 {
+    shouldUpdateStats = false;
+
     switch (myType)
     {
         //warlock
@@ -544,7 +506,7 @@ void bot_pet_ai::SetPetStats(bool force)
         case BOT_PET_LOCUST_SWARM:
             break;
         default:
-            LOG_ERROR("entities.player", "bot_pet_ai::SetPetStats(): unk pet type {}, aborting", myType);
+            BOT_LOG_ERROR("entities.player", "bot_pet_ai::SetPetStats(): unk pet type {}, aborting", myType);
             return;
     }
 
@@ -706,8 +668,38 @@ void bot_pet_ai::SetPetStats(bool force)
             if (pInfo->armor > 0)
                 myarmor = pInfo->armor;
 
-            for (uint8 i = STAT_STRENGTH; i != MAX_STATS; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_STATS>)
                 me->SetCreateStat(Stats(i), pInfo->stats[i]);
+
+            float mindamage, maxdamage;
+            switch (myType)
+            {
+                case BOT_PET_SHADOWFIEND:       mindamage = float(level * 3 + spdtotal * 0.3f);  maxdamage = float(level * 5 + spdtotal * 0.3f);  break;
+                case BOT_PET_SPIRIT_WOLF:       mindamage = float(level * 3);                    maxdamage = float(level * 5);                    break;
+                case BOT_PET_FORCE_OF_NATURE:   mindamage = float(level * 2) + spdtotal * 0.15f; maxdamage = float(level * 3) + spdtotal * 0.15f; break;
+                case BOT_PET_DARK_MINION:       mindamage = float(level);                        maxdamage = float(level + level / 2);            break;
+                case BOT_PET_DARK_MINION_ELITE: mindamage = float(level * 3);                    maxdamage = float(level * 4);                    break;
+                case BOT_PET_NECROSKELETON:     mindamage = float(level);                        maxdamage = float(level + level / 3);            break;
+                case BOT_PET_CARRION_BEETLE1:   mindamage = float(level / 2 + 2);                maxdamage = float(level / 4 * 3 + 2);            break;
+                case BOT_PET_CARRION_BEETLE2:   mindamage = float(level / 4 * 3 + 8);            maxdamage = float(level + level / 2 + 8);        break;
+                case BOT_PET_CARRION_BEETLE3:   mindamage = float(level + level / 2 + 10);       maxdamage = float(level + level / 4 * 3 + 15);   break;
+                default:
+                    if (myType < BOT_PET_AWATER_ELEMENTAL)
+                    {
+                        //we have to compensate for a different way damage is calculated for non-guardians
+                        mindamage = pInfo->min_dmg * 0.75f;
+                        maxdamage = pInfo->max_dmg * 0.75f;
+                    }
+                    else
+                    {
+                        mindamage = float(level - (level / 4));
+                        maxdamage = float(level + (level / 4));
+                    }
+                    break;
+            }
+
+            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, mindamage);
+            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, maxdamage);
         }
         else
         {
@@ -720,7 +712,7 @@ void bot_pet_ai::SetPetStats(bool force)
             me->SetCreateStat(STAT_STAMINA, level * 5 + 20);
             me->SetCreateStat(STAT_INTELLECT, level * 2 + 25);
             me->SetCreateStat(STAT_SPIRIT,  level * 2 + 30);
-            LOG_ERROR("entities.unit", "SetPetStats(): pInfo is NULL, setting default stats for pet {}", myType);
+            BOT_LOG_ERROR("entities.unit", "SetPetStats(): pInfo is NULL, setting default stats for pet {}", myType);
         }
     }
 
@@ -786,59 +778,6 @@ void bot_pet_ai::SetPetStats(bool force)
     //Spd     x1.0  -- spd
 
     //attack power
-    if (force)
-    {
-        if (myType == BOT_PET_SHADOWFIEND)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level * 3 + spdtotal * 0.3f));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level * 5 + spdtotal * 0.3f));
-        }
-        else if (myType == BOT_PET_SPIRIT_WOLF)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level * 3));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level * 5));
-        }
-        else if (myType == BOT_PET_FORCE_OF_NATURE)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level * 2) + spdtotal * 0.15f);
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level * 3) + spdtotal * 0.15f);
-        }
-        else if (myType == BOT_PET_DARK_MINION)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level + level / 2));
-        }
-        else if (myType == BOT_PET_DARK_MINION_ELITE)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level * 3));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level * 4));
-        }
-        else if (myType == BOT_PET_NECROSKELETON)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level + level / 3));
-        }
-        else if (myType == BOT_PET_CARRION_BEETLE1)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level / 2 + 2));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level / 4 * 3 + 2));
-        }
-        else if (myType == BOT_PET_CARRION_BEETLE2)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level / 4 * 3 + 8));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level + level / 2 + 8));
-        }
-        else if (myType == BOT_PET_CARRION_BEETLE3)
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level + level / 2 + 10));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level + level / 4 * 3 + 15));
-        }
-        else
-        {
-            me->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(level - (level / 4)));
-            me->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(level + (level / 4)));
-        }
-    }
     float atpower = /*IAmFree() ? 1000.f :*/ 0.f; //+1000/+0 base pet ap
     switch (myType)
     {
@@ -898,7 +837,7 @@ void bot_pet_ai::SetPetStats(bool force)
             break;
         case BOT_CLASS_WARLOCK:
             atpower += 0.57f * spdtotal;
-            //TC_LOG_ERROR("entities.player", "SetPetStat(): atpower += 0.57 of %i = %.2f", spdtotal, atpower);
+            //BOT_LOG_ERROR("entities.player", "SetPetStat(): atpower += 0.57 of %i = %.2f", spdtotal, atpower);
             break;
         case BOT_CLASS_DREADLORD:
             atpower += spdtotal * 6;
@@ -909,7 +848,7 @@ void bot_pet_ai::SetPetStats(bool force)
         default:
             break;
     }
-    me->SetModifierValue(UNIT_MOD_ATTACK_POWER, BASE_VALUE, atpower);
+    me->SetStatFlatModifier(UNIT_MOD_ATTACK_POWER, BASE_VALUE, atpower);
     me->UpdateAttackPowerAndDamage();
     //armor
     myarmor = std::max<uint32>(myarmor, level*50);
@@ -938,7 +877,7 @@ void bot_pet_ai::SetPetStats(bool force)
     {
         myarmor /= 3;
     }
-    me->SetModifierValue(UNIT_MOD_ARMOR, BASE_VALUE, float(myarmor));
+    me->SetStatFlatModifier(UNIT_MOD_ARMOR, BASE_VALUE, float(myarmor));
     me->UpdateArmor();
     //resistances
     for (uint8 i = SPELL_SCHOOL_HOLY; i != MAX_SPELL_SCHOOL; ++i)
@@ -960,7 +899,7 @@ void bot_pet_ai::SetPetStats(bool force)
                 petResist = (petOwner->GetBotAI()->GetBotResistanceBonus(SpellSchools(i)) + petOwner->GetResistance(SpellSchools(i)))*0.4f;
                 break;
         }
-        me->SetModifierValue(UnitMods(UNIT_MOD_RESISTANCE_START + i), BASE_VALUE, petResist);
+        me->SetStatFlatModifier(UnitMods(UNIT_MOD_RESISTANCE_START + i), BASE_VALUE, petResist);
         me->UpdateResistances(i);
     }
     //crit physical
@@ -1339,10 +1278,10 @@ void bot_pet_ai::SetPetStats(bool force)
         //Innate 5%
         m_totalhp *= 1.05f;
     }
-    //TC_LOG_ERROR("entities.player", "SetPetStat(): hp stamval %.1f, stammult %.1f, base %u, total %.2f", stamValue, stamMult, botPet->GetCreateHealth(), m_totalhp);
+    //BOT_LOG_ERROR("entities.player", "SetPetStat(): hp stamval %.1f, stammult %.1f, base %u, total %.2f", stamValue, stamMult, botPet->GetCreateHealth(), m_totalhp);
     bool fullhp = me->GetHealth() == me->GetMaxHealth();
     float pct = fullhp ? 100.f : me->GetHealthPct(); // needs for regeneration
-    me->SetModifierValue(UNIT_MOD_HEALTH, BASE_VALUE, m_totalhp);
+    me->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, m_totalhp);
     me->UpdateMaxHealth();
     me->SetHealth(fullhp ? me->GetMaxHealth() : uint32(0.5f + float(me->GetMaxHealth()) * pct / 100.f)); //restore pct
     //mana
@@ -1370,10 +1309,10 @@ void bot_pet_ai::SetPetStats(bool force)
         //additional: store stat
         me->SetStat(STAT_INTELLECT, int32(intValue));
         float m_totalmana = intValue * intMult/* + me->GetCreatePowerValue(POWER_MANA)*/ + (IAmFree() ? level * 25.f : 0); //+2000/+0 mana at 80
-        //TC_LOG_ERROR("entities.player", "SetPetStat(): mana intValue %.1f, intMult %.1f, base %u, total %.2f", intValue, intMult, botPet->GetCreatePowerValue(POWER_MANA), m_totalmana);
+        //BOT_LOG_ERROR("entities.player", "SetPetStat(): mana intValue %.1f, intMult %.1f, base %u, total %.2f", intValue, intMult, botPet->GetCreatePowerValue(POWER_MANA), m_totalmana);
         bool fullmana = me->GetPower(POWER_MANA) == me->GetMaxPower(POWER_MANA);
         pct = fullmana ? 100.f : (float(me->GetPower(POWER_MANA)) * 100.f) / float(me->GetMaxPower(POWER_MANA));
-        me->SetModifierValue(UNIT_MOD_MANA, BASE_VALUE, m_totalmana);
+        me->SetStatFlatModifier(UNIT_MOD_MANA, BASE_VALUE, m_totalmana);
         me->UpdateMaxPower(POWER_MANA);
         me->SetPower(POWER_MANA, fullmana ? me->GetMaxPower(POWER_MANA) :
             uint32(0.5f + float(me->GetMaxPower(POWER_MANA)) * pct / 100.f)); //restore pct
@@ -1409,6 +1348,11 @@ void bot_pet_ai::OnOwnerDamagedBy(Unit* attacker)
     SetBotCommandState(BOT_COMMAND_COMBATRESET);
     me->Attack(attacker, IsPetMelee());
 }
+void bot_pet_ai::OnAttackStop(Unit const* target)
+{
+    if (opponent == target)
+        opponent = nullptr;
+}
 
 bool bot_pet_ai::IsPetMelee() const
 {
@@ -1430,7 +1374,7 @@ bool bot_pet_ai::IsInBotParty(Unit const* unit) const
 
     if (IAmFree())
     {
-        if (me->GetFaction() == 14 || unit->GetFaction() == 14)
+        if (me->GetFaction() == FACTION_TEMPLATE_NEUTRAL_HOSTILE || unit->GetFaction() == FACTION_TEMPLATE_NEUTRAL_HOSTILE)
             return false;
 
         if (me->HasByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_FFA_PVP) ||
@@ -1438,7 +1382,7 @@ bool bot_pet_ai::IsInBotParty(Unit const* unit) const
             return false;
 
         return
-            (unit->GetTypeId() == TYPEID_PLAYER || unit->ToCreature()->IsPet() || unit->IsNPCBotOrPet()) &&
+            (unit->IsPlayer() || unit->ToCreature()->IsPet() || unit->IsNPCBot() || unit->IsNPCBotPet()) &&
             (unit->GetFaction() == me->GetFaction() ||
             (me->GetReactionTo(unit) >= REP_FRIENDLY && unit->GetReactionTo(me) >= REP_FRIENDLY));
     }
@@ -1450,9 +1394,9 @@ bool bot_pet_ai::IsInBotParty(Unit const* unit) const
         if (gr->IsMember(unit->GetGUID()))
             return true;
         //pointed target case
-        for (uint8 i = 0; i != TARGETICONCOUNT; ++i)
-            if (BotMgr::GetHealTargetIconFlags() & GroupIconsFlags[i] &&
-                !((BotMgr::GetOffTankTargetIconFlags() | BotMgr::GetDPSTargetIconFlags()) & GroupIconsFlags[i]))
+        for (auto i : NPCBots::index_array<uint8, TARGET_ICONS_COUNT>)
+            if (BotCfg::GetHealTargetIconFlags() & GroupIconsFlags[i] &&
+                !((BotCfg::GetOffTankTargetIconFlags() | BotCfg::GetDPSTargetIconFlags()) & GroupIconsFlags[i]))
                 if (ObjectGuid guid = gr->GetTargetIcons()[i])
                     if (guid == unit->GetGUID())
                         return true;
@@ -1488,13 +1432,13 @@ void bot_pet_ai::RefreshAura(uint32 spellId, int8 count, Unit* target) const
 {
     if (count < 0 || count > 10)
     {
-        LOG_ERROR("entities.player", "bot_pet_ai::RefreshAura(): count is out of bounds ({}) for bot {} (botclass: {}, entry: {})",
+        BOT_LOG_ERROR("entities.player", "bot_pet_ai::RefreshAura(): count is out of bounds ({}) for bot {} (botclass: {}, entry: {})",
             int32(count), me->GetName().c_str(), uint32(petOwner->GetBotClass()), me->GetEntry());
         return;
     }
     if (!spellId)
     {
-        LOG_ERROR("entities.player", "bot_pet_ai::RefreshAura(): spellId is 0 for bot {} (botclass: {}, entry: {})",
+        BOT_LOG_ERROR("entities.player", "bot_pet_ai::RefreshAura(): spellId is 0 for bot {} (botclass: {}, entry: {})",
             me->GetName().c_str(), uint32(petOwner->GetBotClass()), me->GetEntry());
         return;
     }
@@ -1502,7 +1446,7 @@ void bot_pet_ai::RefreshAura(uint32 spellId, int8 count, Unit* target) const
     SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
     if (!spellInfo)
     {
-        LOG_ERROR("entities.player", "bot_pet_ai::RefreshAura(): Invalid spellInfo for spell {}! Bot - {} (botclass: {}, entry: {})",
+        BOT_LOG_ERROR("entities.player", "bot_pet_ai::RefreshAura(): Invalid spellInfo for spell {}! Bot - {} (botclass: {}, entry: {})",
             spellId, me->GetName().c_str(), uint32(petOwner->GetBotClass()), me->GetEntry());
         return;
     }
@@ -1555,7 +1499,7 @@ Unit* bot_pet_ai::_getTarget(bool &reset) const
         foldist = std::max<float>(foldist, spelldist + 4.f);
     }
     bool dropTarget = false;
-    if (!dropTarget && mytar)
+    if (mytar)
     {
         dropTarget = IAmFree() ?
             petOwner->GetDistance(mytar) > foldist :
@@ -1566,7 +1510,7 @@ Unit* bot_pet_ai::_getTarget(bool &reset) const
 
     if (mytar && (!IAmFree() || me->GetDistance(mytar) < float(BOT_MAX_CHASE_RANGE)) && me->IsValidAttackTarget(mytar) && !petOwner->GetBotAI()->IsPointedNoDPSTarget(mytar))
     {
-        if (me->GetDistance(mytar) > (!IsPetMelee() ? 20.f : 5.f) && m_botCommandState != COMMAND_STAY && m_botCommandState != COMMAND_FOLLOW)
+        if (me->GetDistance(mytar) > (!IsPetMelee() ? 20.f : 5.f) && _botCommandState != COMMAND_STAY && _botCommandState != COMMAND_FOLLOW)
             reset = true;
         return mytar;
     }
@@ -1590,7 +1534,7 @@ bool bot_pet_ai::CheckAttackTarget()
 
         return false;
     }
-    if (petOwner->GetBotAI()->IsLastOrder(BOT_ORDER_PULL, 0, opponent->GetGUID()))
+    if (petOwner->GetBotAI()->IsActionNext(BotActionTypes::BOT_ACTION_PULL, 0, opponent->GetGUID()))
         return false;
 
     if (reset)
@@ -1621,7 +1565,7 @@ void bot_pet_ai::CalculateAttackPos(Unit* target, Position& pos) const
     float clockwise = (me->GetEntry() % 2) ? 1.f : -1.f;
     float angleDelta = frand(0.0f, float(M_PI)*0.10f) * clockwise;
 
-    for (uint8 i = 0; i != 5; ++i)
+    for (auto i : NPCBots::index_array<uint8, 5>)
     {
         ppos = target->GetFirstCollisionPosition(dist, angle - target->GetOrientation());
         //target->GetNearPoint(me, x, y, z, dist, angle);
@@ -1670,7 +1614,7 @@ void bot_pet_ai::GetInPosition(bool force, Unit* newtarget, Position* mypos)
     if (!IsPetMelee())
     {
         //do not allow constant runaway from player
-        if (!force && newtarget->GetTypeId() == TYPEID_PLAYER &&
+        if (!force && newtarget->IsPlayer() &&
             me->GetDistance(newtarget) < 6 + urand(followdist/4, followdist/3))
             return;
 
@@ -1773,9 +1717,8 @@ void bot_pet_ai::Regenerate()
             {
                 if (!me->IsInCombat())
                 {
-                    Unit::AuraEffectList const& mModHealthRegenPct = me->GetAuraEffectsByType(SPELL_AURA_MOD_HEALTH_REGEN_PERCENT);
-                    for (Unit::AuraEffectList::const_iterator i = mModHealthRegenPct.begin(); i != mModHealthRegenPct.end(); ++i)
-                        AddPct(add, (*i)->GetAmount());
+                    for (AuraEffect const* aeff : me->GetAuraEffectsByType(SPELL_AURA_MOD_HEALTH_REGEN_PERCENT))
+                        AddPct(add, aeff->GetAmount());
 
                     add += me->GetTotalAuraModifier(SPELL_AURA_MOD_REGEN) * REGEN_CD / 5000;
                 }
@@ -1888,7 +1831,7 @@ uint32 bot_pet_ai::InitSpell(Unit const* caster, uint32 spell)
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
     if (!info)
     {
-        LOG_ERROR("entities.player", "InitSpell(): No SpellInfo found for spell {}", spell);
+        BOT_LOG_ERROR("entities.player", "InitSpell(): No SpellInfo found for spell {}", spell);
         return 0; //weird spell with no info, disable it
     }
 
@@ -1912,7 +1855,7 @@ void bot_pet_ai::InitSpellMap(uint32 basespell, bool forceadd, bool forwardRank)
     SpellInfo const* info = sSpellMgr->GetSpellInfo(basespell);
     if (!info)
     {
-        LOG_ERROR("entities.player", "bot_pet_ai::InitSpellMap(): No SpellInfo found for base spell {}", basespell);
+        BOT_LOG_ERROR("entities.player", "bot_pet_ai::InitSpellMap(): No SpellInfo found for base spell {}", basespell);
         return; //invalid spell id
     }
 
@@ -1925,35 +1868,29 @@ void bot_pet_ai::InitSpellMap(uint32 basespell, bool forceadd, bool forwardRank)
         info = info->GetNextRankSpell(); //check next rank
     }
 
-    BotPetSpell* newSpell = _spells[basespell];
-    if (!newSpell)
-    {
-        newSpell = new BotPetSpell();
-        _spells[basespell] = newSpell;
-    }
-
-    newSpell->spellId = spellId;
+    BotPetSpell& newSpell = _spells.try_emplace(basespell).first->second;
+    newSpell.spellId = spellId;
 }
 //Using first-rank spell as source, return current spell id
 uint32 bot_pet_ai::GetSpell(uint32 basespell) const
 {
-    BotPetSpellMap::const_iterator itr = _spells.find(basespell);
-    return itr != _spells.end() && (itr->second->enabled == true || IAmFree()) ? itr->second->spellId : 0;
+    decltype(_spells)::const_iterator itr = _spells.find(basespell);
+    return itr != _spells.end() && (itr->second.enabled == true || IAmFree()) ? itr->second.spellId : 0;
 }
 //Using first-rank spell as source, returns cooldown on current spell
 uint32 bot_pet_ai::GetSpellCooldown(uint32 basespell) const
 {
-    BotPetSpellMap::const_iterator itr = _spells.find(basespell);
-    return itr != _spells.end() ? itr->second->cooldown : 0;
+    decltype(_spells)::const_iterator itr = _spells.find(basespell);
+    return itr != _spells.end() ? itr->second.cooldown : 0;
 }
 bool bot_pet_ai::IsSpellReady(uint32 basespell, uint32 diff, bool checkGCD) const
 {
     if (checkGCD && GC_Timer > diff)
         return false;
 
-    BotPetSpellMap::const_iterator itr = _spells.find(basespell);
+    decltype(_spells)::const_iterator itr = _spells.find(basespell);
     return itr == _spells.end() ? true :
-        ((itr->second->enabled == true || IAmFree()) && itr->second->spellId != 0 && itr->second->cooldown <= diff);
+        ((itr->second.enabled == true || IAmFree()) && itr->second.spellId != 0 && itr->second.cooldown <= diff);
 }
 //Using first-rank spell as source, sets cooldown for current spell
 void bot_pet_ai::SetSpellCooldown(uint32 basespell, uint32 msCooldown)
@@ -1961,17 +1898,8 @@ void bot_pet_ai::SetSpellCooldown(uint32 basespell, uint32 msCooldown)
     //if (!msCooldown)
     //    return;
 
-    BotPetSpellMap::iterator itr = _spells.find(basespell);
-    if (itr != _spells.end())
-    {
-        itr->second->cooldown = msCooldown;
-        return;
-    }
-    else if (!msCooldown)
-        return;
-
-    InitSpellMap(basespell, true, false);
-    SetSpellCooldown(basespell, msCooldown);
+    BotPetSpell& newSpell = _spells.try_emplace(basespell).first->second;
+    newSpell.cooldown = msCooldown;
 }
 //Using first-rank spell as source, sets cooldown for spells of that category
 void bot_pet_ai::SetSpellCategoryCooldown(SpellInfo const* spellInfo, uint32 msCooldown)
@@ -1984,24 +1912,24 @@ void bot_pet_ai::SetSpellCategoryCooldown(SpellInfo const* spellInfo, uint32 msC
         return;
 
     SpellInfo const* info;
-    for (BotPetSpellMap::iterator itr = _spells.begin(); itr != _spells.end(); ++itr)
+    for (auto& [rank1_id, spell] : _spells)
     {
         //skip spell which has triggered this category cooldown
-        if (itr->first == spellInfo->Id && itr->second->cooldown >= msCooldown)
+        if (rank1_id == spellInfo->Id && spell.cooldown >= msCooldown)
             continue;
 
-        info = sSpellMgr->GetSpellInfo(itr->second->spellId);
-        if (info && itr->first == spellInfo->Id && info->GetCategory() != category)
+        info = sSpellMgr->GetSpellInfo(spell.spellId);
+        if (info && rank1_id == spellInfo->Id && info->GetCategory() != category)
         {
-            if (itr->first != 7814) // Lash of Pain
+            if (rank1_id != 7814) // Lash of Pain
             {
-                LOG_ERROR("scripts", "Warning: SetSpellCategoryCooldown: {} has baseId {} but category {}, not {}!",
-                    info->Id, itr->first, info->GetCategory(), category);
+                BOT_LOG_ERROR("scripts", "Warning: SetSpellCategoryCooldown: {} has baseId {} but category {}, not {}!",
+                    info->Id, rank1_id, info->GetCategory(), category);
             }
         }
 
-        if (info && (info->GetCategory() == category || itr->first == spellInfo->Id) && itr->second->cooldown < msCooldown)
-            itr->second->cooldown = msCooldown;
+        if (info && (info->GetCategory() == category || rank1_id == spellInfo->Id) && spell.cooldown < msCooldown)
+            spell.cooldown = msCooldown;
     }
 }
 //Handles spell cooldowns for spell with IsCooldownStartedOnEvent() == true
@@ -2011,7 +1939,7 @@ void bot_pet_ai::ReleaseSpellCooldown(uint32 basespell)
 
     if (!baseInfo->IsCooldownStartedOnEvent())
     {
-        LOG_ERROR("spells", "bot_pet_ai::ReleaseSpellCooldown is called for wrong spell {}!", basespell);
+        BOT_LOG_ERROR("spells", "bot_pet_ai::ReleaseSpellCooldown is called for wrong spell {}!", basespell);
         return;
     }
 
@@ -2024,29 +1952,20 @@ void bot_pet_ai::ReleaseSpellCooldown(uint32 basespell)
 //Using first-rank spell as source, disables certain spell for this bot
 void bot_pet_ai::RemoveSpell(uint32 basespell)
 {
-    BotPetSpell* newSpell;
-    BotPetSpellMap::iterator itr = _spells.find(basespell);
-    if (itr == _spells.end())
-    {
-        newSpell = new BotPetSpell();
-        _spells[basespell] = newSpell;
-    }
-    else
-        newSpell = itr->second;
-
-    newSpell->spellId = 0;
-    newSpell->cooldown = 0;
+    BotPetSpell& newSpell = _spells.try_emplace(basespell).first->second;
+    newSpell.spellId = 0;
+    newSpell.cooldown = 0;
 }
 //See CommonTimers(uint32)
 void bot_pet_ai::SpellTimers(uint32 diff)
 {
     // spell must be initialized!!!
-    for (BotPetSpellMap::iterator itr = _spells.begin(); itr != _spells.end(); ++itr)
+    for (auto& [_, spell] : _spells)
     {
-        if (itr->second->cooldown >= diff)
-            itr->second->cooldown -= diff;
-        else if (itr->second->cooldown > 0)
-            itr->second->cooldown = 0;
+        if (spell.cooldown >= diff)
+            spell.cooldown -= diff;
+        else if (spell.cooldown > 0)
+            spell.cooldown = 0;
     }
 }
 //Bots cannot dodge/parry from behind so try to condense enemies at front
@@ -2062,12 +1981,12 @@ void bot_pet_ai::AdjustTankingPosition() const
     if (myattackers.size() < 2)
         return;
 
-    //TC_LOG_ERROR("entities.player", "AdjustTankingPosition() by %s", me->GetName().c_str());
+    //BOT_LOG_ERROR("entities.player", "AdjustTankingPosition() by %s", me->GetName().c_str());
 
     uint32 bCount = 0;
-    for (Unit::AttackerSet::const_iterator itr = myattackers.begin(); itr != myattackers.end(); ++itr)
+    for (Unit const* u : myattackers)
     {
-        if (/*!CCed(*itr) && */(*itr)->GetDistance(me) < 5 && !me->HasInArc(float(M_PI), *itr))
+        if (/*!CCed(u) && */(u)->GetDistance(me) < 5 && !me->HasInArc(float(M_PI), u))
             ++bCount;
             //if (++bCount)
             //    break;
@@ -2076,7 +1995,7 @@ void bot_pet_ai::AdjustTankingPosition() const
     if (bCount == 0)
         return;
 
-    //TC_LOG_ERROR("entities.player", "AdjustTankingPosition(): atts %u, behind %u", uint32(myattackers.size()), bCount);
+    //BOT_LOG_ERROR("entities.player", "AdjustTankingPosition(): atts %u, behind %u", uint32(myattackers.size()), bCount);
 
     //calculate new position
     float x = me->GetPositionX();
@@ -2086,7 +2005,7 @@ void bot_pet_ai::AdjustTankingPosition() const
     float const moveDist = -1.f * std::max<float>(opponent->GetCombatReach() * 0.6f, 3.f);
     float moveX = 0.f;
     float moveY = 0.f;
-    for (uint8 i = 0; i != 3; ++i)
+    for (auto i : NPCBots::index_array<uint8, 3>)
     {
         if (i)
         {
@@ -2128,7 +2047,7 @@ void bot_pet_ai::OnSpellHit(Unit* caster, SpellInfo const* spell)
         if (caster && me->Attack(caster, true))
             me->GetMotionMaster()->MoveChase(caster);
 
-    for (uint8 i = 0; i != MAX_SPELL_EFFECTS; ++i)
+    for (auto i : NPCBots::index_array<uint8, MAX_SPELL_EFFECTS>)
     {
         uint32 const auraname = spell->Effects[i].ApplyAuraName;
 
@@ -2225,10 +2144,9 @@ bool bot_pet_ai::IsOffTank(Unit const* unit) const
         {
             if (gr->isRaidGroup())
             {
-                Group::MemberSlotList const& slots = gr->GetMemberSlots();
-                for (Group::member_citerator itr = slots.begin(); itr != slots.end(); ++itr)
-                    if (itr->guid == unit->GetGUID())
-                        return itr->flags & MEMBER_FLAG_MAINASSIST;
+                for (auto const& slot : gr->GetMemberSlots())
+                    if (slot.guid == unit->GetGUID())
+                        return slot.flags & MEMBER_FLAG_MAINASSIST;
             }
         }
     }
@@ -2265,7 +2183,7 @@ void bot_pet_ai::AttackStart(Unit* /*u*/)
 {
 }
 
-void bot_pet_ai::DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/)
+void bot_pet_ai::DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*damageType*/, SpellSchoolMask /*damageSchoolMask*/)
 {
     if (victim == me)
         return;
@@ -2279,18 +2197,18 @@ void bot_pet_ai::DamageDealt(Unit* victim, uint32& damage, DamageEffectType /*da
 
             //controlled case is handled in Unit::DealDamage
             if (IAmFree())
-                cre->LowerPlayerDamageReq(cre->GetHealth() < damage ?  cre->GetHealth() : damage);
+                cre->LowerPlayerDamageReq(std::min<uint32>(cre->GetHealth(), damage) / (BotMgr::IsWanderingWorldBot(me) ? 4 : 2));
         }
     }
 }
 
 void bot_pet_ai::IsSummonedBy(WorldObject* summoner)
 {
-    //TC_LOG_ERROR("entities.unit", "bot_pet_ai::IsSummonedBy for %s by %s", me->GetName().c_str(), summoner->GetName().c_str());
+    //BOT_LOG_ERROR("entities.unit", "bot_pet_ai::IsSummonedBy for %s by %s", me->GetName().c_str(), summoner->GetName().c_str());
     //ASSERT(!petOwner);
-    //ASSERT(summoner->GetTypeId() == TYPEID_UNIT);
+    //ASSERT(summoner->IsCreature());
     petOwner = summoner->ToCreature();
-    m_botCommandState = petOwner->GetBotAI()->GetBotCommandState();
+    _botCommandState = petOwner->GetBotAI()->GetBotCommandState();
     myType = me->GetEntry();
     //myType = petOwner->GetBotAI()->GetAIMiscValue(BOTAI_MISC_PET_TYPE);
     //ASSERT(myType);
@@ -2342,17 +2260,15 @@ void bot_pet_ai::OnBotPetSpellGo(Spell const* spell, bool ok)
 
 void bot_pet_ai::OnBotPetSpellInterrupted(SpellSchoolMask schoolMask, uint32 unTimeMs)
 {
-    SpellInfo const* info;
-
-    for (BotPetSpellMap::iterator itr = _spells.begin(); itr != _spells.end(); ++itr)
+    for (auto& [_, spell] : _spells)
     {
-        info = sSpellMgr->GetSpellInfo(itr->second->spellId);
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spell.spellId);
         if (!info || !(info->GetSchoolMask() & schoolMask)) continue;
         if (info->IsCooldownStartedOnEvent()) continue;
         if (info->PreventionType != SPELL_PREVENTION_TYPE_SILENCE) continue;
 
-        itr->second->cooldown += unTimeMs;
-        //TC_LOG_ERROR("entities.player", "OnBotPetSpellInterrupted(): Adding cooldown (%u, new: %u) to spell %s (id: %u, schoolmask: %u), reqSchoolMask = %u",
+        spell.cooldown += unTimeMs;
+        //BOT_LOG_ERROR("entities.player", "OnBotPetSpellInterrupted(): Adding cooldown (%u, new: %u) to spell %s (id: %u, schoolmask: %u), reqSchoolMask = %u",
         //    unTimeMs, itr->second.second, info->SpellName[0], info->Id, info->SchoolMask, schoolMask);
     }
 
@@ -2364,11 +2280,11 @@ bool bot_pet_ai::GlobalUpdate(uint32 diff)
 {
     if (!petOwner)
     {
-        LOG_ERROR("entities.unit", "botpet:GlobalUpdate(): no owner!");
+        BOT_LOG_ERROR("entities.unit", "botpet:GlobalUpdate(): no owner!");
         return false;
     }
 
-    if (!BotMgr::IsNpcBotModEnabled())
+    if (!BotCfg::IsNpcBotModEnabled())
         return false;
 
     ReduceCD(diff);
@@ -2399,10 +2315,9 @@ bool bot_pet_ai::GlobalUpdate(uint32 diff)
     //Check current cast state: interrupt casts that became pointless
     if (me->HasUnitState(UNIT_STATE_CASTING) && urand(1,100) <= 75)
     {
-        bool interrupt;
         for (uint8 i = CURRENT_FIRST_NON_MELEE_SPELL; i != CURRENT_AUTOREPEAT_SPELL; ++i)
         {
-            interrupt = false;
+            bool interrupt = false;
             Spell* spell = me->GetCurrentSpell(CurrentSpellTypes(i));
             if (!spell)
                 continue;
@@ -2453,13 +2368,12 @@ bool bot_pet_ai::GlobalUpdate(uint32 diff)
         //Faction
         //ensure master is not controlled
         ChrRacesEntry const* rEntry = sChrRacesStore.LookupEntry(petOwner->GetBotOwner()->GetRace());
-        uint32 fac = rEntry ? rEntry->FactionID : 0;
-        if (me->GetFaction() != petOwner->GetBotOwner()->GetFaction() && petOwner->GetBotOwner()->GetFaction() == fac)
+        uint32 fac_orig = rEntry ? rEntry->FactionID : 0;
+        if (petOwner->GetBotOwner()->GetFaction() == fac_orig)
         {
-            //std::ostringstream msg;
-            //msg << "Something changed my faction (now " << me->GetFaction() << "), changing back to " << fac << "!";
-            //BotWhisper(msg.str().c_str());
-            me->SetFaction(fac);
+            uint32 fac = (!IAmFree() && me->GetMap()->IsBattleArena()) ? uint32(FACTION_MONSTER) : fac_orig;
+            if (me->GetFaction() != fac)
+                me->SetFaction(fac);
         }
         //Visibility
         if (!me->IsVisible() && petOwner->GetBotOwner()->IsVisible())
@@ -2622,11 +2536,11 @@ bool bot_pet_ai::IsCasting(Unit const* u/* = nullptr*/) const
 }
 bool bot_pet_ai::JumpingFlyingOrFalling() const
 {
-    return Jumping() || me->IsFalling() || me->HasUnitMovementFlag(MOVEMENTFLAG_PITCH_UP|MOVEMENTFLAG_PITCH_DOWN|MOVEMENTFLAG_SPLINE_ELEVATION|MOVEMENTFLAG_FALLING_SLOW);
+    return JumpingOrFalling() || me->HasUnitMovementFlag(MOVEMENTFLAG_SPLINE_ELEVATION);
 }
 bool bot_pet_ai::JumpingOrFalling() const
 {
-    return Jumping() || me->IsFalling() || me->HasUnitMovementFlag(MOVEMENTFLAG_PITCH_UP|MOVEMENTFLAG_PITCH_DOWN|MOVEMENTFLAG_FALLING_SLOW);
+    return Jumping() || me->IsFalling() || me->HasUnitMovementFlag(MOVEMENTFLAG_PITCH_UP|MOVEMENTFLAG_PITCH_DOWN);
 }
 bool bot_pet_ai::Jumping() const
 {

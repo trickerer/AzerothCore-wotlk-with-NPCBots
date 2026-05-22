@@ -5,10 +5,19 @@ on:
       - 'npcbots_3.3.5'
       - 'CI'
   pull_request:
-    types: ['labeled', 'opened', 'synchronize', 'reopened']
+    types:
+      - labeled
+      - synchronize
 
 concurrency:
-  group: ${{ github.head_ref }} || concat(${{ github.ref }}, ${{ github.workflow }})
+  # One concurrency group per workflow + ref.
+  #
+  # - PRs use `refs/pull/<PR_NUMBER>/merge`, so new commits cancel older
+  #   in-progress runs for the same PR.
+  # - When a PR is merged, a push to the target branch starts a new group,
+  #   canceling any still-running PR CI.
+  # - Branch pushes are isolated by ref.
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,7 +29,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }}
     env:
-      BOOST_ROOT: C:\local\boost_1_82_0
+      BOOST_ROOT: C:\local\boost_1_87_0
     if: github.repository == 'trickerer/AzerothCore-wotlk-with-NPCBots' && !github.event.pull_request.draft
     steps:
       - uses: actions/checkout@v4

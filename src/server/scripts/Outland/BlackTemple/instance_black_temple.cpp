@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -66,8 +66,13 @@ ObjectData const creatureData[] =
     { 0,                             0                              }
 };
 
-ObjectData const objectData[] =
+ObjectData const summonData[] =
 {
+    { NPC_BLADE_OF_AZZINOTH,     DATA_ILLIDAN_STORMRAGE  },
+    { NPC_FLAME_OF_AZZINOTH,     DATA_ILLIDAN_STORMRAGE  },
+    { NPC_PARASITIC_SHADOWFIEND, DATA_ILLIDAN_STORMRAGE  },
+    { NPC_SHADOWY_CONSTRUCT,     DATA_TERON_GOREFIEND    },
+    { NPC_ENSLAVED_SOUL,         DATA_RELIQUARY_OF_SOULS },
     { 0, 0 }
 };
 
@@ -82,14 +87,14 @@ BossBoundaryData const boundaries =
     { DATA_RELIQUARY_OF_SOULS,    new RectangleBoundary(435.9f, 660.3f, 21.2f, 229.6f)       },
     { DATA_RELIQUARY_OF_SOULS,    new ZRangeBoundary(81.8f, 148.0f)                          },
     { DATA_MOTHER_SHAHRAZ,        new RectangleBoundary(903.4f, 982.1f, 92.4f, 313.2f)       },
-    { DATA_ILLIDARI_COUNCIL,      new EllipseBoundary(Position(696.6f, 305.0f), 70.0 , 85.0) },
+    { DATA_ILLIDARI_COUNCIL,      new EllipseBoundary(Position(696.6f, 305.0f), 80.0 , 95.0) },
     { DATA_ILLIDAN_STORMRAGE,     new EllipseBoundary(Position(694.8f, 309.0f), 80.0 , 95.0) }
 };
 
 class instance_black_temple : public InstanceMapScript
 {
 public:
-    instance_black_temple() : InstanceMapScript("instance_black_temple", 564) { }
+    instance_black_temple() : InstanceMapScript("instance_black_temple", MAP_BLACK_TEMPLE) { }
 
     struct instance_black_temple_InstanceMapScript : public InstanceScript
     {
@@ -99,7 +104,8 @@ public:
             SetBossNumber(MAX_ENCOUNTERS);
             LoadDoorData(doorData);
             LoadBossBoundaries(boundaries);
-            LoadObjectData(creatureData, objectData);
+            LoadObjectData(creatureData, nullptr);
+            LoadSummonData(summonData);
 
             ashtongueGUIDs.clear();
         }
@@ -108,20 +114,6 @@ public:
         {
             switch (creature->GetEntry())
             {
-                case NPC_SHADOWY_CONSTRUCT:
-                    if (Creature* teron = GetCreature(DATA_TERON_GOREFIEND))
-                        teron->AI()->JustSummoned(creature);
-                    break;
-                case NPC_ENSLAVED_SOUL:
-                    if (Creature* reliquary = GetCreature(DATA_RELIQUARY_OF_SOULS))
-                        reliquary->AI()->JustSummoned(creature);
-                    break;
-                case NPC_PARASITIC_SHADOWFIEND:
-                case NPC_BLADE_OF_AZZINOTH:
-                case NPC_FLAME_OF_AZZINOTH:
-                    if (Creature* illidan = GetCreature(DATA_ILLIDAN_STORMRAGE))
-                        illidan->AI()->JustSummoned(creature);
-                    break;
                 case NPC_ANGERED_SOUL_FRAGMENT:
                 case NPC_HUNGERING_SOUL_FRAGMENT:
                 case NPC_SUFFERING_SOUL_FRAGMENT:
@@ -223,8 +215,9 @@ class spell_black_template_harpooners_mark_aura : public AuraScript
         GetUnitOwner()->GetCreaturesWithEntryInRange(creatureList, 80.0f, NPC_DRAGON_TURTLE);
         for (std::list<Creature*>::const_iterator itr = creatureList.begin(); itr != creatureList.end(); ++itr)
         {
-            (*itr)->TauntApply(GetUnitOwner());
             (*itr)->AddThreat(GetUnitOwner(), 10000000.0f);
+            if ((*itr)->AI())
+                (*itr)->AI()->AttackStart(GetUnitOwner());
             _turtleSet.insert((*itr)->GetGUID());
         }
     }
@@ -234,7 +227,6 @@ class spell_black_template_harpooners_mark_aura : public AuraScript
         for (ObjectGuid const& guid : _turtleSet)
             if (Creature* turtle = ObjectAccessor::GetCreature(*GetUnitOwner(), guid))
             {
-                turtle->TauntFadeOut(GetUnitOwner());
                 turtle->AddThreat(GetUnitOwner(), -10000000.0f);
             }
     }
@@ -454,29 +446,6 @@ class spell_black_temple_curse_of_vitality_aura : public AuraScript
     }
 };
 
-class spell_black_temple_dementia_aura : public AuraScript
-{
-    PrepareAuraScript(spell_black_temple_dementia_aura);
-
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_DEMENTIA1, SPELL_DEMENTIA2 });
-    }
-
-    void OnPeriodic(AuraEffect const*  /*aurEff*/)
-    {
-        if (roll_chance_i(50))
-            GetTarget()->CastSpell(GetTarget(), SPELL_DEMENTIA1, true);
-        else
-            GetTarget()->CastSpell(GetTarget(), SPELL_DEMENTIA2, true);
-    }
-
-    void Register() override
-    {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_black_temple_dementia_aura::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
-    }
-};
-
 // 39649 - Summon Shadowfiends
 class spell_black_temple_summon_shadowfiends : public SpellScript
 {
@@ -533,7 +502,6 @@ void AddSC_instance_black_temple()
     RegisterSpellScript(spell_black_temple_bloodbolt);
     RegisterSpellScript(spell_black_temple_consuming_strikes_aura);
     RegisterSpellScript(spell_black_temple_curse_of_vitality_aura);
-    RegisterSpellScript(spell_black_temple_dementia_aura);
     RegisterSpellScript(spell_black_temple_summon_shadowfiends);
     RegisterSpellScript(spell_black_temple_l5_arcane_charge);
 }

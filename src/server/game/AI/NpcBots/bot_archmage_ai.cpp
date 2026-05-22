@@ -39,14 +39,8 @@ enum ArchmageSpecial
     ARCHMAGE_MOUNTID        = 2402
 };
 
-static const uint32 Archmage_spells_damage_arr[] =
-{ MAIN_ATTACK_1, BLIZZARD_1 };
-
-static const uint32 Archmage_spells_support_arr[] =
-{ SUMMON_WATER_ELEMENTAL_1 };
-
-static const std::vector<uint32> Archmage_spells_damage(FROM_ARRAY(Archmage_spells_damage_arr));
-static const std::vector<uint32> Archmage_spells_support(FROM_ARRAY(Archmage_spells_support_arr));
+static const std::vector<uint32> Archmage_spells_damage{ MAIN_ATTACK_1, BLIZZARD_1 };
+static const std::vector<uint32> Archmage_spells_support{ SUMMON_WATER_ELEMENTAL_1 };
 
 class archmage_bot : public CreatureScript
 {
@@ -263,9 +257,9 @@ public:
             OnSpellHit(caster, spell);
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
-            bot_ai::DamageDealt(victim, damage, damageType);
+            bot_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override
@@ -319,7 +313,7 @@ public:
 
         void SummonedCreatureDespawn(Creature* summon) override
         {
-            //TC_LOG_ERROR("entities.unit", "SummonedCreatureDespawn: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
+            //BOT_LOG_ERROR("entities.unit", "SummonedCreatureDespawn: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
             if (summon == botPet)
                 botPet = nullptr;
         }

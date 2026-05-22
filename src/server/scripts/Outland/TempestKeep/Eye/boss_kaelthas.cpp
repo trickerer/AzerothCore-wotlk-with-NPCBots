@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -43,14 +43,8 @@ enum KTYells
     SAY_PYROBLAST                       = 14,
 
     // Advisors
-    SAY_THALADRED_AGGRO                 = 0,
-    SAY_SANGUINAR_AGGRO                 = 0,
-    SAY_CAPERNIAN_AGGRO                 = 0,
-    SAY_TELONICUS_AGGRO                 = 0,
-    SAY_THALADRED_DEATH                 = 1,
-    SAY_SANGUINAR_DEATH                 = 1,
-    SAY_CAPERNIAN_DEATH                 = 1,
-    SAY_TELONICUS_DEATH                 = 1,
+    SAY_ADVISOR_AGGRO                   = 0,
+    SAY_ADVISOR_DEATH                   = 1,
     EMOTE_THALADRED_FIXATE              = 2
 };
 
@@ -120,6 +114,7 @@ enum KTSpells
     // Advisors
     // Universal
     SPELL_KAEL_PHASE_TWO                = 36709,
+    SPELL_PERMANENT_FEIGN_DEATH         = 29266,            // placed upon advisors on fake death
 
     // Sanguinar
     SPELL_BELLOWING_ROAR                = 44863,
@@ -166,11 +161,10 @@ enum KTMisc
 enum KTPreFightEvents
 {
     EVENT_PREFIGHT_PHASE1_01              = 1,
-    EVENT_PREFIGHT_PHASE1_02              = 2,
-    EVENT_PREFIGHT_PHASE5_01              = 3,
-    EVENT_PREFIGHT_PHASE5_02              = 4,
-    EVENT_PREFIGHT_PHASE6_02              = 5,
-    EVENT_PREFIGHT_PHASE6_03              = 6,
+    EVENT_PREFIGHT_PHASE5_01              = 2,
+    EVENT_PREFIGHT_PHASE5_02              = 3,
+    EVENT_PREFIGHT_PHASE6_02              = 4,
+    EVENT_PREFIGHT_PHASE6_03              = 5,
 };
 
 enum KTTransitionScene
@@ -197,11 +191,12 @@ enum KTTransitionScene
 
 enum KTActions
 {
-    ACTION_START_SANGUINAR              = 0,
-    ACTION_START_CAPERNIAN              = 1,
-    ACTION_START_TELONICUS              = 2,
-    ACTION_START_WEAPONS                = 3,
-    ACTION_PROGRESS_PHASE_CHECK         = 4
+    ACTION_START_THALADRED              = 0,
+    ACTION_START_SANGUINAR              = 1,
+    ACTION_START_CAPERNIAN              = 2,
+    ACTION_START_TELONICUS              = 3,
+    ACTION_START_WEAPONS                = 4,
+    ACTION_PROGRESS_PHASE_CHECK         = 5
 };
 
 enum KTSpellGroups
@@ -234,28 +229,7 @@ struct boss_kaelthas : public BossAI
             {
                 advisor->Respawn(true);
                 advisor->StopMovingOnCurrentPos();
-                advisor->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
-                advisor->SetReactState(REACT_PASSIVE);
-                summons.Summon(advisor);
             }
-        }
-    }
-
-    void SetData(uint32 type, uint32 data) override
-    {
-        if (type == DATA_RESURRECT_CAST && data == DATA_RESURRECT_CAST)
-        {
-            summons.DoForAllSummons([&](WorldObject* summon){
-                if (Creature* summonedCreature = summon->ToCreature())
-                {
-                    if (summonedCreature->GetEntry() >= NPC_LORD_SANGUINAR && summonedCreature->GetEntry() <= NPC_THALADRED)
-                    {
-                        summonedCreature->SetReactState(REACT_PASSIVE);
-                        summonedCreature->setDeathState(DeathState::JustRespawned);
-                        summonedCreature->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
-                    }
-                }
-            });
         }
     }
 
@@ -280,6 +254,7 @@ struct boss_kaelthas : public BossAI
 
         _phase = PHASE_NONE;
         _transitionSceneReached = false;
+        _advisorsAlive = 4;
 
         me->ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_HOVER, true); // hover effect 36550 - Floating Drowned
         me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
@@ -291,7 +266,7 @@ struct boss_kaelthas : public BossAI
 
     void AttackStart(Unit* who) override
     {
-        if (_phase == PHASE_FINAL /* check is scheduled&& events.GetNextEventTime(EVENT_GRAVITY_LAPSE_END) == 0*/)
+        if (_phase == PHASE_FINAL /* check is scheduled&& !events.HasTimeUntilEvent(EVENT_GRAVITY_LAPSE_END)*/)
             BossAI::AttackStart(who);
     }
 
@@ -304,21 +279,10 @@ struct boss_kaelthas : public BossAI
             me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_DISABLE_MOVE);
             Talk(SAY_INTRO);
             DoCastAOE(SPELL_REMOVE_ENCHANTED_WEAPONS, true);
-            ScheduleUniqueTimedEvent(23s, [&]
+            ScheduleUniqueTimedEvent(21s, [&]
             {
-                Talk(SAY_INTRO_THALADRED);
+                IntroduceNewAdvisor(SAY_INTRO_THALADRED, ACTION_START_THALADRED);
             }, EVENT_PREFIGHT_PHASE1_01);
-            ScheduleUniqueTimedEvent(30s, [&]
-            {
-                if (Creature* thaladred = summons.GetCreatureWithEntry(NPC_THALADRED))
-                {
-                    thaladred->SetReactState(REACT_AGGRESSIVE);
-                    thaladred->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
-                    if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
-                        thaladred->AI()->AttackStart(target);
-                    thaladred->SetInCombatWithZone();
-                }
-            }, EVENT_PREFIGHT_PHASE1_02);
         }
     }
 
@@ -337,70 +301,35 @@ struct boss_kaelthas : public BossAI
             summon->SetReactState(REACT_PASSIVE);
     }
 
-    void DoAction(int32 action) override
+    void SpellHit(Unit* caster, SpellInfo const* spell) override
     {
-        switch (action)
+        if (_phase == PHASE_SINGLE_ADVISOR && spell->Id == SPELL_KAEL_PHASE_TWO)
         {
-            case ACTION_START_SANGUINAR:
-                IntroduceNewAdvisor(SAY_INTRO_SANGUINAR, ACTION_START_SANGUINAR);
-                break;
-            case ACTION_START_CAPERNIAN:
-                IntroduceNewAdvisor(SAY_INTRO_CAPERNIAN, ACTION_START_CAPERNIAN);
-                break;
-            case ACTION_START_TELONICUS:
-                IntroduceNewAdvisor(SAY_INTRO_TELONICUS, ACTION_START_TELONICUS);
-                break;
-            case ACTION_START_WEAPONS:
-                ScheduleUniqueTimedEvent(3s, [&]{
-                    Talk(SAY_PHASE2_WEAPON);
-                    DoCastSelf(SPELL_SUMMON_WEAPONS);
-                    _phase = PHASE_WEAPONS;
-                }, EVENT_PREFIGHT_PHASE5_01);
-                ScheduleUniqueTimedEvent(9s, [&]{
-                    summons.DoForAllSummons([&](WorldObject* summon)
-                    {
-                        if (Creature* summonedCreature = summon->ToCreature())
-                        {
-                            if (!summonedCreature->GetSpawnId())
-                            {
-                                summonedCreature->SetReactState(REACT_AGGRESSIVE);
-                                summonedCreature->SetInCombatWithZone();
-                                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
-                                {
-                                    summonedCreature->AI()->AttackStart(target);
-                                }
-                            }
-                        }
-                    });
-                    scheduler.Schedule(90s, GROUP_PROGRESS_PHASE, [this](TaskContext)
-                    {
-                        PhaseAllAdvisorsExecute();
-                    });
-                }, EVENT_PREFIGHT_PHASE5_02);
-                break;
-            case ACTION_PROGRESS_PHASE_CHECK:
-                if (_phase == PHASE_ALL_ADVISORS)
-                {
-                    bool advisorAlive = false;
-                    summons.DoForAllSummons([&advisorAlive](WorldObject* summon)
-                    {
-                        if (Creature* summonedCreature = summon->ToCreature())
-                        {
-                            if (summonedCreature->IsAlive())
-                            {
-                                if (summonedCreature->GetEntry() >= NPC_LORD_SANGUINAR && summonedCreature->GetEntry() <= NPC_THALADRED)
-                                {
-                                    advisorAlive = true;
-                                    return;
-                                }
-                            }
-                        }
-                    });
-                    if (!advisorAlive)
-                        PhaseKaelExecute();
-                }
-            default:
-                break;
+            switch (caster->GetEntry())
+            {
+                case NPC_THALADRED:
+                    IntroduceNewAdvisor(SAY_INTRO_SANGUINAR, ACTION_START_SANGUINAR);
+                    break;
+                case NPC_LORD_SANGUINAR:
+                    IntroduceNewAdvisor(SAY_INTRO_CAPERNIAN, ACTION_START_CAPERNIAN);
+                    break;
+                case NPC_CAPERNIAN:
+                    IntroduceNewAdvisor(SAY_INTRO_TELONICUS, ACTION_START_TELONICUS);
+                    break;
+                case NPC_TELONICUS:
+                    PhaseEnchantedWeaponsExecute();
+                    break;
+                default:
+                    break;
+            }
+        }
+        else if (_phase == PHASE_ALL_ADVISORS && spell->Id == SPELL_KAEL_PHASE_TWO)
+        {
+            --_advisorsAlive;
+            if (_advisorsAlive == 0)
+            {
+                PhaseKaelExecute();
+            }
         }
     }
 
@@ -415,7 +344,7 @@ struct boss_kaelthas : public BossAI
         }
         else if (point == POINT_AIR)
         {
-            me->SetDisableGravity(true, false, false); // updating AnimationTier will break drowning animation later
+            me->SetDisableGravity(true); // updating AnimationTier will break drowning animation later
         }
         else if (point == POINT_START_LAST_PHASE)
         {
@@ -432,11 +361,11 @@ struct boss_kaelthas : public BossAI
             {
                 DoCastVictim(SPELL_FIREBALL);
             }, 2400ms, 7500ms);
-            ScheduleTimedEvent(10000ms, [&]
+            ScheduleTimedEvent(10s, [&]
             {
                 DoCastRandomTarget(SPELL_FLAME_STRIKE, 0, 100.0f);
             }, 30250ms, 50650ms);
-            ScheduleTimedEvent(50000ms, [&]
+            ScheduleTimedEvent(50s, [&]
             {
                 Talk(SAY_SUMMON_PHOENIX);
                 DoCastSelf(SPELL_PHOENIX);
@@ -497,7 +426,7 @@ struct boss_kaelthas : public BossAI
             DoCastSelf(SPELL_KAEL_EXPLODES1, true);
             DoCastSelf(SPELL_KAEL_GAINING_POWER);
         }, EVENT_SCENE_2);
-        ScheduleUniqueTimedEvent(4000ms, [&]
+        ScheduleUniqueTimedEvent(4s, [&]
         {
             me->SetTarget();
             for (uint8 i = 0; i < 2; ++i)
@@ -508,7 +437,7 @@ struct boss_kaelthas : public BossAI
             me->GetMotionMaster()->MoveTakeoff(POINT_AIR, me->GetPositionX(), me->GetPositionY(), 75.0f, 2.99, true); // AnimType Movement::ToFly does not exist for Kael
             DoCastSelf(SPELL_GROW, true);
         }, EVENT_SCENE_3);
-        ScheduleUniqueTimedEvent(7000ms, [&]
+        ScheduleUniqueTimedEvent(7s, [&]
         {
             me->SetTarget();
             DoCastSelf(SPELL_GROW, true);
@@ -518,7 +447,7 @@ struct boss_kaelthas : public BossAI
                 if (Creature* trigger = me->SummonCreature(WORLD_TRIGGER, triggersPos[i + 2], TEMPSUMMON_TIMED_DESPAWN, 60000))
                     trigger->CastSpell(me, SPELL_NETHERBEAM1 + i, false);
         }, EVENT_SCENE_4);
-        ScheduleUniqueTimedEvent(10000ms, [&]
+        ScheduleUniqueTimedEvent(10s, [&]
         {
             me->SetTarget();
             DoCastSelf(SPELL_GROW, true);
@@ -528,7 +457,7 @@ struct boss_kaelthas : public BossAI
                 if (Creature* trigger = me->SummonCreature(WORLD_TRIGGER, triggersPos[i + 4], TEMPSUMMON_TIMED_DESPAWN, 60000))
                     trigger->CastSpell(me, SPELL_NETHERBEAM1 + i, false);
         }, EVENT_SCENE_5);
-        ScheduleUniqueTimedEvent(14000ms, [&]
+        ScheduleUniqueTimedEvent(14s, [&]
         {
             DoCastSelf(SPELL_GROW, true);
             DoCastSelf(SPELL_KAEL_EXPLODES4, true);
@@ -538,7 +467,7 @@ struct boss_kaelthas : public BossAI
         {
             SetRoomState(GO_STATE_ACTIVE);
         }, EVENT_SCENE_7);
-        ScheduleUniqueTimedEvent(19000ms, [&]
+        ScheduleUniqueTimedEvent(19s, [&]
         {
             summons.DespawnEntry(WORLD_TRIGGER);
             me->RemoveAurasDueToSpell(SPELL_NETHERBEAM_AURA1);
@@ -546,7 +475,7 @@ struct boss_kaelthas : public BossAI
             me->RemoveAurasDueToSpell(SPELL_NETHERBEAM_AURA3);
             DoCastSelf(SPELL_KAEL_EXPLODES5, true);
         }, EVENT_SCENE_8);
-        ScheduleUniqueTimedEvent(22000ms, [&]
+        ScheduleUniqueTimedEvent(22s, [&]
         {
             DoCastSelf(SPELL_DARK_BANISH_STATE, true);
             DoCastSelf(SPELL_ARCANE_EXPLOSION_VISUAL, true);
@@ -596,14 +525,14 @@ struct boss_kaelthas : public BossAI
             me->CastStop();
             DoCastSelf(SPELL_KAEL_FULL_POWER);
         }, EVENT_SCENE_16);
-        ScheduleUniqueTimedEvent(32000ms, [&]
+        ScheduleUniqueTimedEvent(32s, [&]
         {
             DoCastSelf(SPELL_KAEL_PHASE_TWO, true);
             DoCastSelf(SPELL_PURE_NETHER_BEAM4, true);
             DoCastSelf(SPELL_PURE_NETHER_BEAM5, true);
             DoCastSelf(SPELL_PURE_NETHER_BEAM6, true);
         }, EVENT_SCENE_17);
-        ScheduleUniqueTimedEvent(36000ms, [&]
+        ScheduleUniqueTimedEvent(36s, [&]
         {
             summons.DespawnEntry(WORLD_TRIGGER);
             me->CastStop();
@@ -618,7 +547,7 @@ struct boss_kaelthas : public BossAI
     void IntroduceNewAdvisor(KTYells talkIntroduction, KTActions kaelAction)
     {
         std::chrono::milliseconds attackStartTimer = 0ms;
-        EyeNPCs advisorNPCId = NPC_THALADRED;
+        uint32 dataIdx = DATA_THALADRED;
         scheduler.Schedule(2s, [this, talkIntroduction](TaskContext)
         {
             Talk(talkIntroduction);
@@ -626,32 +555,67 @@ struct boss_kaelthas : public BossAI
         //switch because talk times are different
         switch (kaelAction)
         {
+            case ACTION_START_THALADRED:
+                attackStartTimer = 7s;
+                dataIdx = DATA_THALADRED;
+                break;
             case ACTION_START_SANGUINAR:
                 attackStartTimer = 14500ms;
-                advisorNPCId = NPC_LORD_SANGUINAR;
+                dataIdx = DATA_LORD_SANGUINAR;
                 break;
             case ACTION_START_CAPERNIAN:
-                attackStartTimer = 9000ms;
-                advisorNPCId = NPC_CAPERNIAN;
+                attackStartTimer = 9s;
+                dataIdx = DATA_CAPERNIAN;
                 break;
             case ACTION_START_TELONICUS:
                 attackStartTimer = 10400ms;
-                advisorNPCId = NPC_TELONICUS;
+                dataIdx = DATA_TELONICUS;
                 break;
             default:
                 break;
         }
-        scheduler.Schedule(attackStartTimer, [this, advisorNPCId](TaskContext)
+        scheduler.Schedule(attackStartTimer, [this, dataIdx](TaskContext)
         {
-            if (Creature* advisor = summons.GetCreatureWithEntry(advisorNPCId))
+            if (Creature* advisor = instance->GetCreature(dataIdx))
             {
                 advisor->SetReactState(REACT_AGGRESSIVE);
                 advisor->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                 if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
                     advisor->AI()->AttackStart(target);
                 advisor->SetInCombatWithZone();
+                advisor->AI()->Talk(SAY_ADVISOR_AGGRO);
             }
         });
+    }
+
+    void PhaseEnchantedWeaponsExecute()
+    {
+        ScheduleUniqueTimedEvent(3s, [&]{
+            Talk(SAY_PHASE2_WEAPON);
+            DoCastSelf(SPELL_SUMMON_WEAPONS);
+            _phase = PHASE_WEAPONS;
+            scheduler.Schedule(95s, GROUP_PROGRESS_PHASE, [this](TaskContext)
+            {
+                PhaseAllAdvisorsExecute();
+            });
+        }, EVENT_PREFIGHT_PHASE5_01);
+        ScheduleUniqueTimedEvent(9s, [&]{
+            summons.DoForAllSummons([&](WorldObject* summon)
+            {
+                if (Creature* summonedCreature = summon->ToCreature())
+                {
+                    if (!summonedCreature->GetSpawnId())
+                    {
+                        summonedCreature->SetReactState(REACT_AGGRESSIVE);
+                        summonedCreature->SetInCombatWithZone();
+                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
+                        {
+                            summonedCreature->AI()->AttackStart(target);
+                        }
+                    }
+                }
+            });
+        }, EVENT_PREFIGHT_PHASE5_02);
     }
 
     void PhaseAllAdvisorsExecute()
@@ -661,30 +625,12 @@ struct boss_kaelthas : public BossAI
         Talk(SAY_PHASE3_ADVANCE);
         ScheduleUniqueTimedEvent(6s, [&]{
             DoCastSelf(SPELL_RESURRECTION);
-        }, EVENT_PREFIGHT_PHASE6_02);
-        ScheduleUniqueTimedEvent(12s, [&]{
             _phase = PHASE_ALL_ADVISORS;
-            summons.DoForAllSummons([&](WorldObject* summon)
-            {
-                if (Creature* summonedCreature = summon->ToCreature())
-                {
-                    if (summonedCreature->GetSpawnId())
-                    {
-                        summonedCreature->SetReactState(REACT_AGGRESSIVE);
-                        summonedCreature->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
-                        summonedCreature->SetInCombatWithZone();
-                        if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
-                        {
-                            summonedCreature->AI()->AttackStart(target);
-                        }
-                    }
-                }
-            });
-            scheduler.Schedule(3min, GROUP_PROGRESS_PHASE, [this](TaskContext)
-            {
-                PhaseKaelExecute();
-            });
-        }, EVENT_PREFIGHT_PHASE6_03);
+        }, EVENT_PREFIGHT_PHASE6_02);
+        scheduler.Schedule(192s, GROUP_PROGRESS_PHASE, [this](TaskContext)
+        {
+            PhaseKaelExecute();
+        });
     }
 
     void PhaseKaelExecute()
@@ -706,18 +652,18 @@ struct boss_kaelthas : public BossAI
                 me->AttackStop();
                 me->CastStop();
                 me->SetReactState(REACT_PASSIVE);
-                me->GetMotionMaster()->MovePoint(POINT_MIDDLE, me->GetHomePosition(), true, true);
+                me->GetMotionMaster()->MovePoint(POINT_MIDDLE, me->GetHomePosition(), FORCED_MOVEMENT_NONE, 0.f, true, true);
             }
         });
-        ScheduleTimedEvent(1000ms, [&]
+        ScheduleTimedEvent(1s, [&]
         {
             DoCastVictim(SPELL_FIREBALL);
         }, 2400ms, 7500ms);
-        ScheduleTimedEvent(15000ms, [&]
+        ScheduleTimedEvent(15s, [&]
         {
             DoCastRandomTarget(SPELL_FLAME_STRIKE, 0, 100.0f);
         }, 30250ms, 50650ms);
-        ScheduleTimedEvent(50000ms, [&]
+        ScheduleTimedEvent(50s, [&]
         {
             Talk(SAY_SUMMON_PHOENIX);
             DoCastSelf(SPELL_PHOENIX);
@@ -769,58 +715,92 @@ struct boss_kaelthas : public BossAI
     }
 private:
     uint32 _phase;
+    uint8 _advisorsAlive;
     bool _transitionSceneReached = false;
 };
-struct npc_lord_sanguinar : public ScriptedAI
+
+struct advisor_baseAI : public ScriptedAI
+
 {
-    npc_lord_sanguinar(Creature* creature) : ScriptedAI(creature) {
-        _instance = creature->GetInstanceScript();
-        scheduler.SetValidator([this]
-        {
-            return !me->HasUnitState(UNIT_STATE_CASTING);
-        });
-    }
+    advisor_baseAI(Creature* creature) : ScriptedAI(creature) {    }
+
+    virtual void ScheduleEvents() {}
 
     void Reset() override
     {
+        _preventDeath = true;
+        _feigning = false;
+        me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
         scheduler.CancelAll();
-        _hasDied = false;
+    }
+
+    void JustRespawned() override
+    {
+        ScriptedAI::JustRespawned();
+        me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
         me->SetReactState(REACT_PASSIVE);
     }
 
-    void JustEngagedWith(Unit* /*who*/) override
+    void JustEngagedWith(Unit* /*who*/) override { ScheduleEvents(); }
+
+    void DamageTaken(Unit* /*attacker*/, uint32& damage, DamageEffectType /*damageEffectType*/, SpellSchoolMask /*spellSchoolMask*/) override
     {
-        if (!_hasDied)
+        if (!_preventDeath)
+            return;
+        if (damage >= me->GetHealth())
         {
-            Talk(SAY_SANGUINAR_AGGRO);
+            damage = me->GetHealth() - 1; // prevent death
+            if (_feigning)
+                return;
+            scheduler.CancelAll();
+            me->AttackStop();
+            me->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+            DoCastAOE(SPELL_KAEL_PHASE_TWO, true);
+            DoCastSelf(SPELL_PERMANENT_FEIGN_DEATH, true);
+            _feigning = true;
         }
-        ScheduleTimedEvent(0s, 2s, [&]{
-            DoCastSelf(SPELL_BELLOWING_ROAR);
-        }, 30s, 40s);
+     }
+
+    void SpellHit(Unit* caster, SpellInfo const* spell) override
+    {
+        if (spell->Id == SPELL_RESURRECTION && caster->GetEntry() == NPC_KAELTHAS)
+        {
+            me->RemoveAurasDueToSpell(SPELL_PERMANENT_FEIGN_DEATH);
+            me->SetStandState(UNIT_STAND_STATE_STAND);
+            me->SetFullHealth();
+            scheduler.Schedule(6s, [&](TaskContext /*context*/)
+            {
+                _preventDeath = false;
+                _feigning = false;
+                me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+                DoResetThreatList();
+                me->SetInCombatWithZone();
+                me->SetReactState(REACT_AGGRESSIVE);
+                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0))
+                {
+                    AttackStart(target);
+                }
+                ScheduleEvents();
+            });
+        }
     }
 
     void JustDied(Unit* /*killer*/) override
     {
-        if (Creature* kael = _instance->GetCreature(DATA_KAELTHAS))
-        {
-            kael->AI()->DoAction(ACTION_PROGRESS_PHASE_CHECK);
-            if (!_hasDied)
-            {
-                Talk(SAY_SANGUINAR_DEATH);
-                DoCastSelf(SPELL_KAEL_PHASE_TWO, true);
-                kael->AI()->DoAction(ACTION_START_CAPERNIAN);
-                _hasDied = true;
-            }
-        }
+        Talk(SAY_ADVISOR_DEATH);
         scheduler.CancelAll();
+        DoCastAOE(SPELL_KAEL_PHASE_TWO, true);
     }
 
     void UpdateAI(uint32 diff) override
     {
-        if (!UpdateVictim())
+        scheduler.Update(diff);
+
+        if (_feigning)
             return;
 
-        scheduler.Update(diff);
+        if (!UpdateVictim())
+            return;
 
         if (me->HasUnitState(UNIT_STATE_CASTING))
             return;
@@ -828,26 +808,25 @@ struct npc_lord_sanguinar : public ScriptedAI
         DoMeleeAttackIfReady();
     }
 private:
-    InstanceScript* _instance;
-    bool _hasDied;
+    bool _preventDeath;
+    bool _feigning;
 };
 
-struct npc_capernian : public ScriptedAI
+struct npc_lord_sanguinar : public advisor_baseAI
 {
-    npc_capernian(Creature* creature) : ScriptedAI(creature) {
-        _instance = creature->GetInstanceScript();
-        scheduler.SetValidator([this]
-        {
-            return !me->HasUnitState(UNIT_STATE_CASTING);
-        });
-    }
+    npc_lord_sanguinar(Creature* creature) : advisor_baseAI(creature) { };
 
-    void Reset() override
+    void ScheduleEvents() override
     {
-        scheduler.CancelAll();
-        _hasDied = false;
-        me->SetReactState(REACT_PASSIVE);
+        ScheduleTimedEvent(0s, 2s, [&]{
+            DoCastSelf(SPELL_BELLOWING_ROAR);
+        }, 30s, 40s);
     }
+};
+
+struct npc_capernian : public advisor_baseAI
+{
+    npc_capernian(Creature* creature) : advisor_baseAI(creature) { }
 
     void AttackStart(Unit* who) override
     {
@@ -861,14 +840,10 @@ struct npc_capernian : public ScriptedAI
         }
     }
 
-    void JustEngagedWith(Unit* /*who*/) override
+    void ScheduleEvents() override
     {
-        if (!_hasDied)
+        ScheduleTimedEvent(0ms, [&]
         {
-            Talk(SAY_CAPERNIAN_AGGRO);
-        }
-        ScheduleTimedEvent(0ms, [&]{
-
             if (!me->CanCastSpell(SPELL_CAPERNIAN_FIREBALL))
             {
                 me->ResumeChasingVictim();
@@ -878,72 +853,22 @@ struct npc_capernian : public ScriptedAI
                 me->GetMotionMaster()->MoveChase(me->GetVictim(), 30.0f);
                 DoCastVictim(SPELL_CAPERNIAN_FIREBALL);
             }
-
         }, 2500ms);
-        ScheduleTimedEvent(7000ms, 10000ms, [&]{
+        ScheduleTimedEvent(7s, 10s, [&]{
             DoCastRandomTarget(SPELL_CONFLAGRATION, 0, 30.0f);
         }, 18500ms, 20500ms);
         ScheduleTimedEvent(3s, [&]{
             DoCastRandomTarget(SPELL_ARCANE_BURST, 0, 8.0f);
         }, 6s);
     }
-
-    void JustDied(Unit* /*killer*/) override
-    {
-        if (Creature* kael = _instance->GetCreature(DATA_KAELTHAS))
-        {
-            kael->AI()->DoAction(ACTION_PROGRESS_PHASE_CHECK);
-            if (!_hasDied)
-            {
-                Talk(SAY_CAPERNIAN_DEATH);
-                DoCastSelf(SPELL_KAEL_PHASE_TWO, true);
-                kael->AI()->DoAction(ACTION_START_TELONICUS);
-                _hasDied = true;
-            }
-        }
-        scheduler.CancelAll();
-    }
-
-    void UpdateAI(uint32 diff) override
-    {
-        if (!UpdateVictim())
-            return;
-
-        scheduler.Update(diff);
-
-        if (me->HasUnitState(UNIT_STATE_CASTING))
-            return;
-
-        DoMeleeAttackIfReady();
-    }
-private:
-    InstanceScript* _instance;
-    bool _hasDied;
 };
 
-struct npc_telonicus : public ScriptedAI
+struct npc_telonicus : public advisor_baseAI
 {
-    npc_telonicus(Creature* creature) : ScriptedAI(creature) {
-        _instance = creature->GetInstanceScript();
-        scheduler.SetValidator([this]
-        {
-            return !me->HasUnitState(UNIT_STATE_CASTING);
-        });
-    }
+    npc_telonicus(Creature* creature) : advisor_baseAI(creature) { }
 
-    void Reset() override
+    void ScheduleEvents() override
     {
-        scheduler.CancelAll();
-        _hasDied = false;
-        me->SetReactState(REACT_PASSIVE);
-    }
-
-    void JustEngagedWith(Unit* /*who*/) override
-    {
-        if (!_hasDied)
-        {
-            Talk(SAY_TELONICUS_AGGRO);
-        }
         ScheduleTimedEvent(0ms, [&]{
             DoCastVictim(SPELL_BOMB);
         }, 3600ms, 7100ms);
@@ -951,63 +876,14 @@ struct npc_telonicus : public ScriptedAI
             DoCastRandomTarget(SPELL_REMOTE_TOY, 0, 100.0f);
         }, 15750ms);
     }
-
-    void JustDied(Unit* /*killer*/) override
-    {
-        if (Creature* kael = _instance->GetCreature(DATA_KAELTHAS))
-        {
-            kael->AI()->DoAction(ACTION_PROGRESS_PHASE_CHECK);
-            if (!_hasDied)
-            {
-                Talk(SAY_TELONICUS_DEATH);
-                DoCastSelf(SPELL_KAEL_PHASE_TWO, true);
-                kael->AI()->DoAction(ACTION_START_WEAPONS);
-                _hasDied = true;
-            }
-        }
-        scheduler.CancelAll();
-    }
-
-    void UpdateAI(uint32 diff) override
-    {
-        if (!UpdateVictim())
-            return;
-
-        scheduler.Update(diff);
-
-        if (me->HasUnitState(UNIT_STATE_CASTING))
-            return;
-
-        DoMeleeAttackIfReady();
-    }
-private:
-    InstanceScript* _instance;
-    bool _hasDied;
 };
 
-struct npc_thaladred : public ScriptedAI
+struct npc_thaladred : public advisor_baseAI
 {
-    npc_thaladred(Creature* creature) : ScriptedAI(creature) {
-        _instance = creature->GetInstanceScript();
-        scheduler.SetValidator([this]
-        {
-            return !me->HasUnitState(UNIT_STATE_CASTING);
-        });
-    }
+    npc_thaladred(Creature* creature) : advisor_baseAI(creature) { }
 
-    void Reset() override
+    void ScheduleEvents() override
     {
-        scheduler.CancelAll();
-        me->SetReactState(REACT_PASSIVE);
-        _hasDied = false;
-    }
-
-    void JustEngagedWith(Unit* /*who*/) override
-    {
-        if (!_hasDied)
-        {
-            Talk(SAY_THALADRED_AGGRO);
-        }
         ScheduleTimedEvent(100ms, [&]
         {
             DoResetThreatList();
@@ -1016,16 +892,16 @@ struct npc_thaladred : public ScriptedAI
                 me->AddThreat(target, 10000000.0f);
                 Talk(EMOTE_THALADRED_FIXATE, target);
             }
-        }, 10000ms);
-        ScheduleTimedEvent(4000ms, 19350ms, [&]
+        }, 10s);
+        ScheduleTimedEvent(4s, 19350ms, [&]
         {
             DoCastVictim(SPELL_PSYCHIC_BLOW);
         }, 15700ms, 48900ms);
-        ScheduleTimedEvent(3000ms, 6050ms, [&]
+        ScheduleTimedEvent(3s, 6050ms, [&]
         {
             DoCastVictim(SPELL_REND);
         }, 15700ms, 48900ms);
-        ScheduleTimedEvent(3000ms, 6050ms, [&]
+        ScheduleTimedEvent(3s, 6050ms, [&]
         {
             if (Unit* victim = me->GetVictim())
             {
@@ -1035,56 +911,6 @@ struct npc_thaladred : public ScriptedAI
                 }
             }
         }, 3600ms, 15200ms);
-    }
-
-    void JustDied(Unit* /*killer*/) override
-    {
-        if (Creature* kael = _instance->GetCreature(DATA_KAELTHAS))
-        {
-            kael->AI()->DoAction(ACTION_PROGRESS_PHASE_CHECK);
-            if (!_hasDied)
-            {
-                Talk(SAY_THALADRED_DEATH);
-                DoCastSelf(SPELL_KAEL_PHASE_TWO, true);
-                kael->AI()->DoAction(ACTION_START_SANGUINAR);
-                _hasDied = true;
-            }
-        }
-        scheduler.CancelAll();
-    }
-
-    void UpdateAI(uint32 diff) override
-    {
-        if (!UpdateVictim())
-            return;
-
-        scheduler.Update(diff);
-
-        if (me->HasUnitState(UNIT_STATE_CASTING))
-            return;
-
-        DoMeleeAttackIfReady();
-    }
-private:
-    InstanceScript* _instance;
-    bool _hasDied;
-};
-
-class spell_kaelthas_kael_phase_two : public SpellScript
-{
-    PrepareSpellScript(spell_kaelthas_kael_phase_two);
-
-    bool Load() override
-    {
-        if (GetCaster()->IsCreature())
-            if (InstanceScript* instance = GetCaster()->GetInstanceScript())
-                if (Creature* kael = instance->GetCreature(DATA_KAELTHAS))
-                    kael->AI()->SummonedCreatureDies(GetCaster()->ToCreature(), nullptr);
-        return true;
-    }
-
-    void Register() override
-    {
     }
 };
 
@@ -1119,21 +945,6 @@ class spell_kaelthas_summon_weapons : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_kaelthas_summon_weapons::HandleScriptEffect, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
-    }
-};
-
-class spell_kaelthas_resurrection : public SpellScript
-{
-    PrepareSpellScript(spell_kaelthas_resurrection);
-
-    void HandleBeforeCast()
-    {
-        GetCaster()->GetAI()->SetData(DATA_RESURRECT_CAST, DATA_RESURRECT_CAST);
-    }
-
-    void Register() override
-    {
-        BeforeCast += SpellCastFn(spell_kaelthas_resurrection::HandleBeforeCast);
     }
 };
 
@@ -1201,7 +1012,7 @@ class spell_kaelthas_flame_strike : public AuraScript
     {
         GetUnitOwner()->RemoveAllAuras();
         GetUnitOwner()->CastSpell(GetUnitOwner(), SPELL_FLAME_STRIKE_DAMAGE, true);
-        GetUnitOwner()->ToCreature()->DespawnOrUnsummon(2000);
+        GetUnitOwner()->ToCreature()->DespawnOrUnsummon(2s);
     }
 
     void Register() override
@@ -1220,7 +1031,7 @@ public:
     bool Execute(uint64 /*execTime*/, uint32 /*diff*/) override
     {
         if (_owner->IsBeingTeleportedNear())
-            _owner->m_Events.AddEvent(new lapseTeleport(_owner), _owner->m_Events.CalculateTime(1));
+            _owner->m_Events.AddEventAtOffset(new lapseTeleport(_owner), 1ms);
         else if (!_owner->IsBeingTeleported())
         {
             _owner->CastSpell(_owner, SPELL_GRAVITY_LAPSE_KNOCKBACK, true);
@@ -1250,7 +1061,7 @@ class spell_kaelthas_gravity_lapse : public SpellScript
             if (Player* target = GetHitPlayer())
             {
                 GetCaster()->CastSpell(target, _currentSpellId++, true);
-                target->m_Events.AddEvent(new lapseTeleport(target), target->m_Events.CalculateTime(1));
+                target->m_Events.AddEventAtOffset(new lapseTeleport(target), 1ms);
             }
     }
 
@@ -1271,13 +1082,14 @@ class spell_kaelthas_nether_beam : public SpellScript
     {
         PreventHitEffect(effIndex);
 
-        ThreatContainer::StorageType const& ThreatList = GetCaster()-> GetThreatMgr().GetThreatList();
         std::list<Unit*> targetList;
-        for (ThreatContainer::StorageType::const_iterator itr = ThreatList.begin(); itr != ThreatList.end(); ++itr)
+        for (ThreatReference const* ref : GetCaster()->GetThreatMgr().GetUnsortedThreatList())
         {
-            Unit* target = ObjectAccessor::GetUnit(*GetCaster(), (*itr)->getUnitGuid());
-            if (target && target->IsPlayer())
-                targetList.push_back(target);
+            if (Unit* target = ref->GetVictim())
+            {
+                if (target->IsPlayer())
+                    targetList.push_back(target);
+            }
         }
 
         Acore::Containers::RandomResize(targetList, 5);
@@ -1380,10 +1192,8 @@ void AddSC_boss_kaelthas()
     RegisterTheEyeAI(npc_capernian);
     RegisterTheEyeAI(npc_telonicus);
     RegisterTheEyeAI(npc_thaladred);
-    RegisterSpellScript(spell_kaelthas_kael_phase_two);
     RegisterSpellScript(spell_kaelthas_remote_toy);
     RegisterSpellScript(spell_kaelthas_summon_weapons);
-    RegisterSpellScript(spell_kaelthas_resurrection);
     RegisterSpellScript(spell_kaelthas_mind_control);
     RegisterSpellScript(spell_kaelthas_burn);
     RegisterSpellScript(spell_kaelthas_flame_strike);

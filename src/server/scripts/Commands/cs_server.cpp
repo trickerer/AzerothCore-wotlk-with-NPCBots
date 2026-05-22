@@ -1,40 +1,37 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
- /* ScriptData
- Name: server_commandscript
- %Complete: 100
- Comment: All server related commands
- Category: commandscripts
- EndScriptData */
-
 #include "Chat.h"
 #include "CommandScript.h"
+#include "Common.h"
 #include "GameTime.h"
 #include "GitRevision.h"
 #include "Log.h"
+#include "MapMgr.h"
 #include "ModuleMgr.h"
 #include "MotdMgr.h"
 #include "MySQLThreading.h"
+#include "RBAC.h"
 #include "Realm.h"
 #include "StringConvert.h"
 #include "UpdateTime.h"
 #include "VMapFactory.h"
 #include "VMapMgr2.h"
+#include "WorldSessionMgr.h"
 #include <boost/version.hpp>
 #include <filesystem>
 #include <numeric>
@@ -52,44 +49,44 @@ public:
     {
         static ChatCommandTable serverIdleRestartCommandTable =
         {
-            { "cancel",       HandleServerShutDownCancelCommand, SEC_ADMINISTRATOR, Console::Yes },
-            { "",             HandleServerIdleRestartCommand,    SEC_CONSOLE,       Console::Yes }
+            { "cancel",       HandleServerShutDownCancelCommand, rbac::RBAC_PERM_COMMAND_SERVER_IDLERESTART_CANCEL, Console::Yes },
+            { "",             HandleServerIdleRestartCommand,    rbac::RBAC_PERM_COMMAND_SERVER_IDLERESTART,        Console::Yes }
         };
 
         static ChatCommandTable serverIdleShutdownCommandTable =
         {
-            { "cancel",       HandleServerShutDownCancelCommand, SEC_ADMINISTRATOR, Console::Yes },
-            { "",             HandleServerIdleShutDownCommand,   SEC_CONSOLE,       Console::Yes }
+            { "cancel",       HandleServerShutDownCancelCommand, rbac::RBAC_PERM_COMMAND_SERVER_IDLESHUTDOWN_CANCEL, Console::Yes },
+            { "",             HandleServerIdleShutDownCommand,   rbac::RBAC_PERM_COMMAND_SERVER_IDLESHUTDOWN,        Console::Yes }
         };
 
         static ChatCommandTable serverRestartCommandTable =
         {
-            { "cancel",       HandleServerShutDownCancelCommand, SEC_ADMINISTRATOR, Console::Yes },
-            { "",             HandleServerRestartCommand,        SEC_ADMINISTRATOR, Console::Yes }
+            { "cancel",       HandleServerShutDownCancelCommand, rbac::RBAC_PERM_COMMAND_SERVER_RESTART_CANCEL, Console::Yes },
+            { "",             HandleServerRestartCommand,        rbac::RBAC_PERM_COMMAND_SERVER_RESTART,        Console::Yes }
         };
 
         static ChatCommandTable serverShutdownCommandTable =
         {
-            { "cancel",       HandleServerShutDownCancelCommand, SEC_ADMINISTRATOR, Console::Yes },
-            { "",             HandleServerShutDownCommand,       SEC_ADMINISTRATOR, Console::Yes }
+            { "cancel",       HandleServerShutDownCancelCommand, rbac::RBAC_PERM_COMMAND_SERVER_SHUTDOWN_CANCEL, Console::Yes },
+            { "",             HandleServerShutDownCommand,       rbac::RBAC_PERM_COMMAND_SERVER_SHUTDOWN,        Console::Yes }
         };
 
         static ChatCommandTable serverSetCommandTable =
         {
-            { "loglevel",     HandleServerSetLogLevelCommand,    SEC_CONSOLE,       Console::Yes },
-            { "motd",         HandleServerSetMotdCommand,        SEC_ADMINISTRATOR, Console::Yes },
-            { "closed",       HandleServerSetClosedCommand,      SEC_CONSOLE,       Console::Yes },
+            { "loglevel",     HandleServerSetLogLevelCommand,    rbac::RBAC_PERM_COMMAND_SERVER_SET_LOGLEVEL, Console::Yes },
+            { "motd",         HandleServerSetMotdCommand,        rbac::RBAC_PERM_COMMAND_SERVER_SET_MOTD,     Console::Yes },
+            { "closed",       HandleServerSetClosedCommand,      rbac::RBAC_PERM_COMMAND_SERVER_SET_CLOSED,   Console::Yes },
         };
 
         static ChatCommandTable serverCommandTable =
         {
-            { "corpses",      HandleServerCorpsesCommand,        SEC_GAMEMASTER,    Console::Yes },
-            { "debug",        HandleServerDebugCommand,          SEC_ADMINISTRATOR, Console::Yes },
-            { "exit",         HandleServerExitCommand,           SEC_CONSOLE,       Console::Yes },
+            { "corpses",      HandleServerCorpsesCommand,        rbac::RBAC_PERM_COMMAND_SERVER_CORPSES,  Console::Yes },
+            { "debug",        HandleServerDebugCommand,          rbac::RBAC_PERM_COMMAND_SERVER_DEBUG,    Console::Yes },
+            { "exit",         HandleServerExitCommand,           rbac::RBAC_PERM_COMMAND_SERVER_EXIT,     Console::Yes },
             { "idlerestart",  serverIdleRestartCommandTable },
             { "idleshutdown", serverIdleShutdownCommandTable },
-            { "info",         HandleServerInfoCommand,           SEC_PLAYER,        Console::Yes },
-            { "motd",         HandleServerMotdCommand,           SEC_PLAYER,        Console::Yes },
+            { "info",         HandleServerInfoCommand,           rbac::RBAC_PERM_COMMAND_SERVER_INFO,     Console::Yes },
+            { "motd",         HandleServerMotdCommand,           rbac::RBAC_PERM_COMMAND_SERVER_MOTD,     Console::Yes },
             { "restart",      serverRestartCommandTable },
             { "shutdown",     serverShutdownCommandTable },
             { "set",          serverSetCommandTable }
@@ -106,7 +103,10 @@ public:
     // Triggering corpses expire check in world
     static bool HandleServerCorpsesCommand(ChatHandler* /*handler*/)
     {
-        sWorld->RemoveOldCorpses();
+        sMapMgr->DoForAllMaps([](Map* map)
+        {
+            map->RemoveOldCorpses();
+        });
         return true;
     }
 
@@ -137,7 +137,7 @@ public:
 
         handler->PSendSysMessage("Compiled on: {}", GitRevision::GetHostOSVersion());
 
-        handler->PSendSysMessage("Worldserver listening connections on port %" PRIu16, worldPort);
+        handler->PSendSysMessage("Worldserver listening connections on port {}", worldPort);
         handler->PSendSysMessage("{}", dbPortOutput);
 
         bool vmapIndoorCheck = sWorld->getBoolConfig(CONFIG_VMAP_INDOOR_CHECK);
@@ -258,10 +258,10 @@ public:
     static bool HandleServerInfoCommand(ChatHandler* handler)
     {
         std::string realmName = sWorld->GetRealmName();
-        uint32 playerCount = sWorld->GetPlayerCount();
-        uint32 activeSessionCount = sWorld->GetActiveSessionCount();
-        uint32 queuedSessionCount = sWorld->GetQueuedSessionCount();
-        uint32 connPeak = sWorld->GetMaxActiveSessionCount();
+        uint32 playerCount = sWorldSessionMgr->GetPlayerCount();
+        uint32 activeSessionCount = sWorldSessionMgr->GetActiveSessionCount();
+        uint32 queuedSessionCount = sWorldSessionMgr->GetQueuedSessionCount();
+        uint32 connPeak = sWorldSessionMgr->GetMaxActiveSessionCount();
 
         handler->PSendSysMessage("{}", GitRevision::GetFullVersion());
         if (!queuedSessionCount)
@@ -288,7 +288,9 @@ public:
     // Display the 'Message of the day' for the realm
     static bool HandleServerMotdCommand(ChatHandler* handler)
     {
-        handler->PSendSysMessage(LANG_MOTD_CURRENT, sMotdMgr->GetMotd());
+        handler->PSendSysMessage(LANG_MOTD_CURRENT);
+        for (uint32 i = 0; i < TOTAL_LOCALES; ++i)
+            handler->PSendSysMessage(LANG_GENERIC_TWO_CURLIES_WITH_COLON, GetNameByLocaleConstant(LocaleConstant(i)), sMotdMgr->GetMotd(LocaleConstant(i)));
         return true;
     }
 
@@ -520,32 +522,61 @@ public:
     }
 
     // Define the 'Message of the day' for the realm
-    static bool HandleServerSetMotdCommand(ChatHandler* handler, Optional<int32> realmId, Tail motd)
+    static bool HandleServerSetMotdCommand(ChatHandler* handler, Optional<int32> realmId, std::string locale, Tail motd)
     {
-        std::wstring wMotd   = std::wstring();
-        std::string  strMotd = std::string();
+        std::wstring wMotd = std::wstring();
+        std::string strMotd = std::string();
 
+        // Default realmId to the current realm if not provided
         if (!realmId)
             realmId = static_cast<int32>(realm.Id.Realm);
+
+        // Determine the locale; default to "enUS" if not provided
+        LocaleConstant localeConstant;
+        if (IsLocaleValid(locale))
+            localeConstant = GetLocaleByName(locale);
+        else
+        {
+            handler->SendErrorMessage("locale ({}) is not valid. Valid locales: enUS, koKR, frFR, deDE, zhCN, zhWE, esES, esMX, ruRU.", locale);
+            return false;
+        }
 
         if (motd.empty())
             return false;
 
+        // Convert the concatenated motdString to UTF-8 and ensure encoding consistency
         if (!Utf8toWStr(motd, wMotd))
             return false;
 
         if (!WStrToUtf8(wMotd, strMotd))
             return false;
 
+        // Start a transaction for the database operations
         LoginDatabaseTransaction trans = LoginDatabase.BeginTransaction();
-        LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_REP_MOTD);
-        stmt->SetData(0, realmId.value());
-        stmt->SetData(1, strMotd);
-        trans->Append(stmt);
+
+        if (localeConstant == LOCALE_enUS)
+        {
+            // Insert or update in the main motd table for enUS
+            LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_REP_MOTD);
+            stmt->SetData(0, realmId.value());  // realmId for insertion
+            stmt->SetData(1, strMotd);          // motd text for insertion
+            trans->Append(stmt);
+        }
+        else
+        {
+            // Insert or update in the motd_localized table for other locales
+            LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_REP_MOTD_LOCALE);
+            stmt->SetData(0, realmId.value());  // realmId for insertion
+            stmt->SetData(1, locale);           // locale for insertion
+            stmt->SetData(2, strMotd);          // motd text for insertion
+            trans->Append(stmt);
+        }
+
+        // Commit the transaction & update db
         LoginDatabase.CommitTransaction(trans);
 
-        sMotdMgr->LoadMotd();
-        handler->PSendSysMessage(LANG_MOTD_NEW, realmId.value(), strMotd);
+        sMotdMgr->SetMotd(strMotd, localeConstant);
+        handler->PSendSysMessage(LANG_MOTD_NEW, realmId.value(), locale, strMotd);
         return true;
     }
 

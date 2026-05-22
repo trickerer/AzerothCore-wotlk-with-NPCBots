@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -22,7 +22,6 @@
 #include "ACSoap.h"
 #include "AppenderDB.h"
 #include "AsyncAcceptor.h"
-#include "AsyncAuctionListing.h"
 #include "Banner.h"
 #include "BattlegroundMgr.h"
 #include "BigNumber.h"
@@ -31,7 +30,6 @@
 #include "Config.h"
 #include "DatabaseEnv.h"
 #include "DatabaseLoader.h"
-#include "DeadlineTimer.h"
 #include "GitRevision.h"
 #include "IoContext.h"
 #include "MapMgr.h"
@@ -49,7 +47,10 @@
 #include "ScriptMgr.h"
 #include "SecretMgr.h"
 #include "SharedDefines.h"
+#include "SteadyTimer.h"
+#include "Systemd.h"
 #include "World.h"
+#include "WorldSessionMgr.h"
 #include "WorldSocket.h"
 #include "WorldSocketMgr.h"
 #include <boost/asio/signal_set.hpp>
@@ -92,14 +93,14 @@ public:
 
     static void Start(std::shared_ptr<FreezeDetector> const& freezeDetector)
     {
-        freezeDetector->_timer.expires_from_now(boost::posix_time::seconds(5));
+        freezeDetector->_timer.expires_at(Acore::Asio::SteadyTimer::GetExpirationTime(5));
         freezeDetector->_timer.async_wait(std::bind(&FreezeDetector::Handler, std::weak_ptr<FreezeDetector>(freezeDetector), std::placeholders::_1));
     }
 
     static void Handler(std::weak_ptr<FreezeDetector> freezeDetectorRef, boost::system::error_code const& error);
 
 private:
-    Acore::Asio::DeadlineTimer _timer;
+    boost::asio::steady_timer _timer;
     uint32 _worldLoopCounter;
     uint32 _lastChangeMsTime;
     uint32 _maxCoreStuckTimeInMs;
@@ -112,7 +113,6 @@ void StopDB();
 bool LoadRealmInfo(Acore::Asio::IoContext& ioContext);
 AsyncAcceptor* StartRaSocketAcceptor(Acore::Asio::IoContext& ioContext);
 void ShutdownCLIThread(std::thread* cliThread);
-void AuctionListingRunnable();
 void WorldUpdateLoop();
 variables_map GetConsoleArguments(int argc, char** argv, fs::path& configFile, [[maybe_unused]] std::string& cfg_service);
 
@@ -128,7 +128,7 @@ int main(int argc, char** argv)
     auto vm = GetConsoleArguments(argc, argv, configFile, configService);
 
     // exit if help or version is enabled
-    if (vm.count("help"))
+    if (vm.count("help") || vm.count("version"))
         return 0;
 
 #if AC_PLATFORM == AC_PLATFORM_WINDOWS
@@ -287,7 +287,7 @@ int main(int argc, char** argv)
 
     sMetric->Initialize(realm.Name, *ioContext, []()
     {
-        METRIC_VALUE("online_players", sWorld->GetPlayerCount());
+        METRIC_VALUE("online_players", sWorldSessionMgr->GetPlayerCount());
         METRIC_VALUE("db_queue_login", uint64(LoginDatabase.QueueSize()));
         METRIC_VALUE("db_queue_character", uint64(CharacterDatabase.QueueSize()));
         METRIC_VALUE("db_queue_world", uint64(WorldDatabase.QueueSize()));
@@ -359,8 +359,8 @@ int main(int argc, char** argv)
 
     std::shared_ptr<void> sWorldSocketMgrHandle(nullptr, [](void*)
     {
-        sWorld->KickAll();              // save and kick all players
-        sWorld->UpdateSessions(1);      // real players unload required UpdateSessions call
+        sWorldSessionMgr->KickAll();         // save and kick all players
+        sWorldSessionMgr->UpdateSessions(1); // real players unload required UpdateSessions call
 
         sWorldSocketMgr.StopNetwork();
 
@@ -397,15 +397,6 @@ int main(int argc, char** argv)
         cliThread.reset(new std::thread(CliThread), &ShutdownCLIThread);
     }
 
-    // Launch auction listing thread
-    std::shared_ptr<std::thread> auctionListingThread;
-    auctionListingThread.reset(new std::thread(AuctionListingRunnable),
-        [](std::thread* thr)
-    {
-        thr->join();
-        delete thr;
-    });
-
     WorldUpdateLoop();
 
     // Shutdown starts here
@@ -416,7 +407,8 @@ int main(int argc, char** argv)
     sScriptMgr->OnShutdown();
 
     // set server offline
-    LoginDatabase.DirectExecute("UPDATE realmlist SET flag = flag | {} WHERE id = '{}'", REALM_FLAG_OFFLINE, realm.Id.Realm);
+    if (!sConfigMgr->GetOption<bool>("Network.UseSocketActivation", false))
+        LoginDatabase.DirectExecute("UPDATE realmlist SET flag = flag | {} WHERE id = '{}'", REALM_FLAG_OFFLINE, realm.Id.Realm);
 
     LOG_INFO("server.worldserver", "Halting process...");
 
@@ -433,7 +425,7 @@ bool StartDB()
     MySQL::Library_Init();
 
     // Load databases
-    DatabaseLoader loader("server.worldserver", DatabaseLoader::DATABASE_NONE, AC_MODULES_LIST);
+    DatabaseLoader loader("server.worldserver", DatabaseLoader::DATABASE_MASK_ALL, AC_MODULES_LIST);
     loader
         .AddDatabase(LoginDatabase, "Login")
         .AddDatabase(CharacterDatabase, "Character")
@@ -443,7 +435,7 @@ bool StartDB()
         return false;
 
     ///- Get the realm Id from the configuration file
-    realm.Id.Realm = sConfigMgr->GetOption<uint32>("RealmID", 0);
+    realm.Id.Realm = sConfigMgr->GetOption<uint32>("RealmID", 1);
     if (!realm.Id.Realm)
     {
         LOG_ERROR("server.worldserver", "Realm ID not defined in configuration file");
@@ -467,7 +459,10 @@ bool StartDB()
     ClearOnlineAccounts();
 
     ///- Insert version info into DB
-    WorldDatabase.Execute("UPDATE version SET core_version = '{}', core_revision = '{}'", GitRevision::GetFullVersion(), GitRevision::GetHash());        // One-time query
+    WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_UPD_VERSION);
+    stmt->SetData(0, GitRevision::GetFullVersion());
+    stmt->SetData(1, GitRevision::GetHash());
+    WorldDatabase.Execute(stmt);
 
     sWorld->LoadDBVersion();
 
@@ -639,7 +634,7 @@ void FreezeDetector::Handler(std::weak_ptr<FreezeDetector> freezeDetectorRef, bo
                 }
             }
 
-            freezeDetector->_timer.expires_from_now(boost::posix_time::seconds(1));
+            freezeDetector->_timer.expires_at(Acore::Asio::SteadyTimer::GetExpirationTime(1));
             freezeDetector->_timer.async_wait(std::bind(&FreezeDetector::Handler, freezeDetectorRef, std::placeholders::_1));
         }
     }
@@ -710,55 +705,6 @@ bool LoadRealmInfo(Acore::Asio::IoContext& ioContext)
     return true;
 }
 
-void AuctionListingRunnable()
-{
-    LOG_INFO("server", "Starting up Auction House Listing thread...");
-
-    while (!World::IsStopped())
-    {
-        Milliseconds diff = AsyncAuctionListingMgr::GetDiff();
-        AsyncAuctionListingMgr::ResetDiff();
-
-        if (!AsyncAuctionListingMgr::GetTempList().empty() || !AsyncAuctionListingMgr::GetList().empty())
-        {
-            {
-                std::lock_guard<std::mutex> guard(AsyncAuctionListingMgr::GetTempLock());
-
-                for (auto const& delayEvent: AsyncAuctionListingMgr::GetTempList())
-                    AsyncAuctionListingMgr::GetList().emplace_back(delayEvent);
-
-                AsyncAuctionListingMgr::GetTempList().clear();
-            }
-
-            for (auto& itr: AsyncAuctionListingMgr::GetList())
-            {
-                if (itr._pickupTimer <= diff)
-                {
-                    itr._pickupTimer = Milliseconds::zero();
-                }
-                else
-                {
-                    itr._pickupTimer -= diff;
-                }
-            }
-
-            for (auto itr = AsyncAuctionListingMgr::GetList().begin(); itr != AsyncAuctionListingMgr::GetList().end(); ++itr)
-            {
-                if ((*itr)._pickupTimer != Milliseconds::zero())
-                    continue;
-
-                if ((*itr).Execute())
-                    AsyncAuctionListingMgr::GetList().erase(itr);
-
-                break;
-            }
-        }
-        std::this_thread::sleep_for(1ms);
-    }
-
-    LOG_INFO("server", "Auction House Listing thread exiting without problems.");
-}
-
 variables_map GetConsoleArguments(int argc, char** argv, fs::path& configFile, [[maybe_unused]] std::string& configService)
 {
     options_description all("Allowed options");
@@ -766,7 +712,8 @@ variables_map GetConsoleArguments(int argc, char** argv, fs::path& configFile, [
         ("help,h", "print usage message")
         ("version,v", "print version build info")
         ("dry-run,d", "Dry run")
-        ("config,c", value<fs::path>(&configFile)->default_value(fs::path(sConfigMgr->GetConfigPath() + std::string(_ACORE_CORE_CONFIG))), "use <arg> as configuration file");
+        ("config,c", value<fs::path>(&configFile)->default_value(fs::path(sConfigMgr->GetConfigPath() + std::string(_ACORE_CORE_CONFIG))), "use <arg> as configuration file")
+        ("config-policy", value<std::string>()->value_name("policy"), "override config severity policy (e.g. default=skip,critical_option=fatal)");
 
 #if AC_PLATFORM == AC_PLATFORM_WINDOWS
     options_description win("Windows platform specific options");
@@ -789,13 +736,11 @@ variables_map GetConsoleArguments(int argc, char** argv, fs::path& configFile, [
     }
 
     if (vm.count("help"))
-    {
         std::cout << all << "\n";
-    }
+    else if (vm.count("version"))
+        std::cout << GitRevision::GetFullVersion() << "\n";
     else if (vm.count("dry-run"))
-    {
         sConfigMgr->setDryRun(true);
-    }
 
     return vm;
 }

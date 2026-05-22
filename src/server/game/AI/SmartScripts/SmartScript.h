@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -18,16 +18,26 @@
 #ifndef ACORE_SMARTSCRIPT_H
 #define ACORE_SMARTSCRIPT_H
 
-#include "Common.h"
 #include "Creature.h"
-#include "CreatureAI.h"
 #include "GridNotifiers.h"
 #include "SmartScriptMgr.h"
 #include "Spell.h"
 #include "Unit.h"
+#include <deque>
 
 class SmartScript
 {
+    struct SmartScriptFrame
+    {
+        SmartScriptHolder& holder;
+        Unit* unit;
+        uint32 var0;
+        uint32 var1;
+        bool bvar;
+        SpellInfo const* spell;
+        GameObject* gob;
+    };
+
 public:
     SmartScript();
     ~SmartScript();
@@ -197,6 +207,8 @@ public:
     void AddCreatureSummon(ObjectGuid const& guid);
     void RemoveCreatureSummon(ObjectGuid const& guid);
 
+    SmartAIEventList const& GetEvents() const { return mEvents; }
+
 private:
     void IncPhase(uint32 p);
     void DecPhase(uint32 p);
@@ -253,7 +265,8 @@ private:
             }
         }
     }
-    SmartScriptHolder FindLinkedEvent (uint32 link)
+    std::optional<std::reference_wrapper<
+        SmartScriptHolder>> FindLinkedEvent(uint32 link)
     {
         if (!mEvents.empty())
         {
@@ -261,15 +274,16 @@ private:
             {
                 if (i->event_id == link)
                 {
-                    return (*i);
+                    return std::ref(*i);
                 }
             }
         }
-        SmartScriptHolder s;
-        return s;
+        return std::nullopt;
     }
 
     GuidUnorderedSet _summonList;
+
+    std::deque<SmartScriptFrame> executionStack;
 };
 
 #endif

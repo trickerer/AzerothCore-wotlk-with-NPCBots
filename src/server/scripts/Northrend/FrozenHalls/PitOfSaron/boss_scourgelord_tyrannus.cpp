@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -63,9 +63,9 @@ public:
         {
             pInstance = me->GetInstanceScript();
             me->SetReactState(REACT_PASSIVE);
-            if (Creature* c = pInstance->instance->GetCreature(pInstance->GetGuidData(DATA_RIMEFANG_GUID)))
+            if (Creature* rimefang = pInstance->instance->GetCreature(pInstance->GetGuidData(DATA_RIMEFANG_GUID)))
             {
-                c->SetCanFly(true);
+                rimefang->SetCanFly(true);
             }
         }
 
@@ -76,28 +76,27 @@ public:
         {
             me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
             events.Reset();
-            if (me->HasReactState(REACT_AGGRESSIVE)) // Reset() called by EnterEvadeMode()
-            {
-                if (!pInstance)
-                    return;
-                if (Creature* c = pInstance->instance->GetCreature(pInstance->GetGuidData(DATA_MARTIN_OR_GORKUN_GUID)))
-                {
-                    c->AI()->DoAction(1);
-                    c->DespawnOrUnsummon();
-                    pInstance->SetGuidData(DATA_MARTIN_OR_GORKUN_GUID, ObjectGuid::Empty);
-                }
-                if (Creature* c = pInstance->instance->GetCreature(pInstance->GetGuidData(DATA_RIMEFANG_GUID)))
-                {
-                    c->GetMotionMaster()->Clear();
-                    c->GetMotionMaster()->MoveIdle();
+            pInstance->SetData(DATA_TYRANNUS, NOT_STARTED);
+        }
 
-                    c->RemoveAllAuras();
-                    c->UpdatePosition(1017.3f, 168.974f, 642.926f, 5.2709f, true);
-                    c->StopMovingOnCurrentPos();
-                    if (Vehicle* v = c->GetVehicleKit())
-                        v->InstallAllAccessories(false);
-                }
+        void EnterEvadeMode(EvadeReason /*why*/) override
+        {
+            if (!pInstance)
+                return;
+
+            if (Creature* creature = pInstance->instance->GetCreature(pInstance->GetGuidData(DATA_MARTIN_OR_GORKUN_GUID)))
+            {
+                creature->AI()->DoAction(1);
+                creature->DespawnOrUnsummon();
+                pInstance->SetGuidData(DATA_MARTIN_OR_GORKUN_GUID, ObjectGuid::Empty);
             }
+
+            // Tyrannus is temporarily spawned as Rimefang's rider. If he evades, despawn Rimefang.
+            // Tyrannus will be respawned once Rimefang respawns.
+            if (Creature* rimefang = pInstance->instance->GetCreature(pInstance->GetGuidData(DATA_RIMEFANG_GUID)))
+                rimefang->DespawnOnEvade();
+
+            me->DespawnOrUnsummon();
         }
 
         void DoAction(int32 param) override
@@ -109,7 +108,7 @@ public:
                 {
                     c->RemoveAura(46598);
                     c->GetMotionMaster()->Clear();
-                    c->GetMotionMaster()->MovePath(PATH_BEGIN_VALUE + 18, true);
+                    c->GetMotionMaster()->MoveWaypoint(PATH_BEGIN_VALUE + 18, true);
                 }
                 me->SetHomePosition(exitPos);
                 me->GetMotionMaster()->MoveJump(exitPos, 10.0f, 2.0f);
@@ -117,6 +116,7 @@ public:
                 // start real fight
                 me->RemoveAllAuras();
                 me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
+                me->SetImmuneToPC(false);
                 DoZoneInCombat();
                 me->CastSpell(me, 43979, true);
                 Talk(SAY_AGGRO);
@@ -140,7 +140,7 @@ public:
                 if (TSDistCheckPos.GetExactDist(x, y, z) > 100.0f || z > TSDistCheckPos.GetPositionZ() + 20.0f || z < TSDistCheckPos.GetPositionZ() - 20.0f)
                 {
                     me->SetHealth(me->GetMaxHealth());
-                    EnterEvadeMode();
+                    EnterEvadeMode(EVADE_REASON_OTHER);
                     return;
                 }
             }
@@ -162,7 +162,7 @@ public:
                         events.RescheduleEvent(EVENT_SPELL_UNHOLY_POWER, 1s);
                         break;
                     }
-                    events.RepeatEvent(3000);
+                    events.Repeat(3s);
                     break;
                 case EVENT_SPELL_UNHOLY_POWER:
                     Talk(SAY_DARK_MIGHT);

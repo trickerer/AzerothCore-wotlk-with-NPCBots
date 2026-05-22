@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -21,6 +21,7 @@
 #include "PassiveAI.h"
 #include "Player.h"
 #include "SpellAuraEffects.h"
+#include "SpellMgr.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
 #include "Vehicle.h"
@@ -500,7 +501,14 @@ class spell_pilgrims_bounty_feast_on_generic : public SpellScript
 
                     // Cast spirit of sharing
                     if (count >= 5)
+                    {
+                        player->RemoveAurasDueToSpell(SPELL_PLAYER_TURKEY);
+                        player->RemoveAurasDueToSpell(SPELL_PLAYER_STUFFING);
+                        player->RemoveAurasDueToSpell(SPELL_PLAYER_PIE);
+                        player->RemoveAurasDueToSpell(SPELL_PLAYER_CRANBERRY);
+                        player->RemoveAurasDueToSpell(SPELL_PLAYER_SWEET_POTATOES);
                         player->CastSpell(player, SPELL_SPIRIT_OF_SHARING, true);
+                    }
                 }
             }
         }

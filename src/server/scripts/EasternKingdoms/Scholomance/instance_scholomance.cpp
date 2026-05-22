@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -31,7 +31,7 @@ Position KirtonosSpawn = Position(315.028, 70.5385, 102.15, 0.385971);
 class instance_scholomance : public InstanceMapScript
 {
 public:
-    instance_scholomance() : InstanceMapScript(ScholomanceScriptName, 289) { }
+    instance_scholomance() : InstanceMapScript(ScholomanceScriptName, MAP_SCHOLOMANCE) { }
 
     InstanceScript* GetInstanceScript(InstanceMap* map) const override
     {
@@ -246,86 +246,63 @@ public:
     };
 };
 
-class spell_scholomance_fixate : public SpellScriptLoader
+class spell_scholomance_fixate_aura : public AuraScript
 {
-public:
-    spell_scholomance_fixate() : SpellScriptLoader("spell_scholomance_fixate") { }
+    PrepareAuraScript(spell_scholomance_fixate_aura);
 
-    class spell_scholomance_fixate_AuraScript : public AuraScript
+    void HandleEffectApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        PrepareAuraScript(spell_scholomance_fixate_AuraScript);
+        Unit* target = GetTarget();
+        if (Unit* caster = GetCaster())
+            caster->GetThreatMgr().FixateTarget(target);
+    }
 
-        void HandleEffectApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-        {
-            Unit* target = GetTarget();
-            if (Unit* caster = GetCaster())
-                caster->TauntApply(target);
-        }
-
-        void HandleEffectRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-        {
-            Unit* target = GetTarget();
-            if (Unit* caster = GetCaster())
-                caster->TauntFadeOut(target);
-        }
-
-        void Register() override
-        {
-            OnEffectApply += AuraEffectApplyFn(spell_scholomance_fixate_AuraScript::HandleEffectApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-            OnEffectRemove += AuraEffectRemoveFn(spell_scholomance_fixate_AuraScript::HandleEffectRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        }
-    };
-
-    AuraScript* GetAuraScript() const override
+    void HandleEffectRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        return new spell_scholomance_fixate_AuraScript();
+        if (Unit* caster = GetCaster())
+            caster->GetThreatMgr().ClearFixate();
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_scholomance_fixate_aura::HandleEffectApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_scholomance_fixate_aura::HandleEffectRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
-class spell_scholomance_boon_of_life : public SpellScriptLoader
+class spell_scholomance_boon_of_life_aura : public AuraScript
 {
-public:
-    spell_scholomance_boon_of_life() : SpellScriptLoader("spell_scholomance_boon_of_life") { }
+    PrepareAuraScript(spell_scholomance_boon_of_life_aura);
 
-    class spell_scholomance_boon_of_life_AuraScript : public AuraScript
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        PrepareAuraScript(spell_scholomance_boon_of_life_AuraScript);
-
-        void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-        {
-            if (Unit* caster = GetCaster())
-                if (Unit* target = GetTarget())
-                    if (Creature* creature = target->ToCreature())
-                    {
-                        creature->AI()->AttackStart(caster);
-                        creature->AddThreat(caster, 10000.0f);
-                    }
-        }
-
-        void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-        {
+        if (Unit* caster = GetCaster())
             if (Unit* target = GetTarget())
                 if (Creature* creature = target->ToCreature())
-                    if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_CANCEL)
-                    {
-                        creature->AI()->Talk(TALK_RAS_HUMAN);
-                        creature->SetDisplayId(MODEL_RAS_HUMAN);
-                        creature->SetHealth(target->GetMaxHealth());
-                        if (InstanceScript* instance = creature->GetInstanceScript())
-                            instance->SetData(DATA_RAS_HUMAN, 1);
-                    }
-        }
+                {
+                    creature->AI()->AttackStart(caster);
+                    creature->AddThreat(caster, 10000.0f);
+                }
+    }
 
-        void Register() override
-        {
-            OnEffectRemove += AuraEffectRemoveFn(spell_scholomance_boon_of_life_AuraScript::OnRemove, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
-            AfterEffectApply += AuraEffectApplyFn(spell_scholomance_boon_of_life_AuraScript::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
-        }
-    };
-
-    AuraScript* GetAuraScript() const override
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        return new spell_scholomance_boon_of_life_AuraScript();
+        if (Unit* target = GetTarget())
+            if (Creature* creature = target->ToCreature())
+                if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_CANCEL)
+                {
+                    creature->AI()->Talk(TALK_RAS_HUMAN);
+                    creature->SetDisplayId(MODEL_RAS_HUMAN);
+                    creature->SetHealth(target->GetMaxHealth());
+                    if (InstanceScript* instance = creature->GetInstanceScript())
+                        instance->SetData(DATA_RAS_HUMAN, 1);
+                }
+    }
+
+    void Register() override
+    {
+        OnEffectRemove += AuraEffectRemoveFn(spell_scholomance_boon_of_life_aura::OnRemove, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectApply += AuraEffectApplyFn(spell_scholomance_boon_of_life_aura::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -361,10 +338,9 @@ public:
 
         Unit* SelectUnitCasting()
         {
-          ThreatContainer::StorageType threatlist = me->GetThreatMgr().GetThreatList();
-          for (ThreatContainer::StorageType::const_iterator itr = threatlist.begin(); itr != threatlist.end(); ++itr)
+          for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
           {
-              if (Unit* unit = ObjectAccessor::GetUnit(*me, (*itr)->getUnitGuid()))
+              if (Unit* unit = ref->GetVictim())
               {
                   if (unit->HasUnitState(UNIT_STATE_CASTING))
                   {
@@ -421,17 +397,17 @@ public:
             {
                 case 1:
                     me->CastSpell(me, BONE_ARMOR_SPELL, false);
-                    events.RepeatEvent(60000);
+                    events.Repeat(60s);
                     break;
                 case 2:
                     if (Unit* target = SelectUnitCasting())
                     {
                         me->CastSpell(target, COUNTER_SPELL, false);
-                        events.RepeatEvent(urand(10000, 20000));
+                        events.Repeat(10s, 20s);
                     }
                     else
                     {
-                        events.RepeatEvent(400);
+                        events.Repeat(400ms);
                     }
                     break;
                 case 3:
@@ -439,11 +415,11 @@ public:
                     {
                         me->CastSpell(target, DRAIN_MANA_SPELL, false);
                     }
-                    events.RepeatEvent(urand(13000, 20000));
+                    events.Repeat(13s, 20s);
                     break;
                 case 4:
                     me->CastSpell(me->GetVictim(), SHADOWBOLT_VOLLEY_SPELL, true);
-                    events.RepeatEvent(urand(11000, 17000));
+                    events.Repeat(11s, 17s);
                     break;
             }
 
@@ -460,7 +436,7 @@ public:
 void AddSC_instance_scholomance()
 {
     new instance_scholomance();
-    new spell_scholomance_fixate();
-    new spell_scholomance_boon_of_life();
+    RegisterSpellScript(spell_scholomance_fixate_aura);
+    RegisterSpellScript(spell_scholomance_boon_of_life_aura);
     new npc_scholomance_occultist();
 }

@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -29,6 +29,11 @@
 #include "ScriptMgr.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+
+//npcbot
+#include "botconfig.h"
+#include "botmgr.h"
+//end npcbot
 
 void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recvData)
 {
@@ -93,7 +98,7 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recvData)
         loot = &creature->loot;
     }
 
-    sScriptMgr->OnAfterCreatureLoot(player);
+    sScriptMgr->OnPlayerAfterCreatureLoot(player);
 
     InventoryResult msg;
     LootItem* lootItem = player->StoreLootItem(lootSlot, loot, msg);
@@ -179,8 +184,52 @@ void WorldSession::HandleLootMoneyOpcode(WorldPacket& /*recvData*/)
 
     if (loot)
     {
-        sScriptMgr->OnBeforeLootMoney(player, loot);
+        sScriptMgr->OnPlayerBeforeLootMoney(player, loot);
         loot->NotifyMoneyRemoved();
+        //npcbot
+        if (shareMoney && player->GetGroup() && BotCfg::GetNpcBotMoneyShareEnabled())
+        {
+            Group* group = player->GetGroup();
+            std::vector<Player*> playersNear;
+            uint32 bots_count = 0;
+            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+            {
+                Player* member = itr->GetSource();
+                if (!member)
+                    continue;
+
+                if (player->IsAtGroupRewardDistance(member))
+                    playersNear.push_back(member);
+
+                if (!member->HaveBot())
+                    continue;
+
+                BotMap const* botMap = member->GetBotMgr()->GetBotMap();
+                for (auto const& kv : *botMap)
+                {
+                    Creature const* bot = kv.second;
+                    if (bot && bot->IsAlive() && bot->IsInMap(player) && (group->IsMember(kv.first) || !BotCfg::GetNpcBotMoneyShareGroupOnly()) &&
+                        (member->GetMap()->IsDungeon() || player->GetDistance(bot) <= sWorld->getFloatConfig(CONFIG_GROUP_XP_DISTANCE)))
+                        ++bots_count;
+                }
+            }
+
+            uint32 sharers_count = uint32(playersNear.size()) + bots_count;
+            uint32 goldPerPlayer = uint32(loot->gold / sharers_count);
+
+            for (std::vector<Player*>::const_iterator i = playersNear.begin(); i != playersNear.end(); ++i)
+            {
+                (*i)->ModifyMoney(goldPerPlayer);
+                (*i)->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_LOOT_MONEY, goldPerPlayer);
+
+                WorldPacket data(SMSG_LOOT_MONEY_NOTIFY, 4 + 1);
+                data << uint32(goldPerPlayer);
+                data << uint8(sharers_count <= 1); // Controls the text displayed in chat. 0 is "Your share is..." and 1 is "You loot..."
+                (*i)->SendDirectMessage(&data);
+            }
+        }
+        else
+        //end npcbot
         if (shareMoney && player->GetGroup())      //item, pickpocket and players can be looted only single player
         {
             Group* group = player->GetGroup();
@@ -206,12 +255,12 @@ void WorldSession::HandleLootMoneyOpcode(WorldPacket& /*recvData*/)
                 WorldPacket data(SMSG_LOOT_MONEY_NOTIFY, 4 + 1);
                 data << uint32(goldPerPlayer);
                 data << uint8(playersNear.size() > 1 ? 0 : 1);     // Controls the text displayed in chat. 0 is "Your share is..." and 1 is "You loot..."
-                (*i)->GetSession()->SendPacket(&data);
+                (*i)->SendDirectMessage(&data);
             }
         }
         else
         {
-            sScriptMgr->OnAfterCreatureLootMoney(player);
+            sScriptMgr->OnPlayerAfterCreatureLootMoney(player);
             player->ModifyMoney(loot->gold);
             player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_LOOT_MONEY, loot->gold);
 

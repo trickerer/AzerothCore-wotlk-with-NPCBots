@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -128,6 +128,14 @@ struct boss_leotheras_the_blind : public BossAI
         });
     }
 
+    void AttackStart(Unit* who) override
+    {
+        if (me->HasAura(SPELL_METAMORPHOSIS))
+            AttackStartCaster(who, 40.0f);
+        else
+            ScriptedAI::AttackStart(who);
+    }
+
     void DoAction(int32 actionId) override
     {
         if (actionId == ACTION_CHECK_SPELLBINDERS)
@@ -172,15 +180,13 @@ struct boss_leotheras_the_blind : public BossAI
 
     void MoveToTargetIfOutOfRange(Unit* target)
     {
-        if (me->GetDistance2d(target) > 40.0f)
+        if (!me->IsWithinDistInMap(target, 40.0f))
         {
-            me->GetMotionMaster()->MoveChase(target, 5.0f, 0);
+            me->GetMotionMaster()->MoveChase(target, 40.0f, 0);
             me->AddThreat(target, 0.0f);
         }
         else
-        {
             me->GetMotionMaster()->Clear();
-        }
     }
 
     void DemonTime()
@@ -204,7 +210,7 @@ struct boss_leotheras_the_blind : public BossAI
         {
             DoResetThreatList();
             me->LoadEquipment();
-            me->GetMotionMaster()->MoveChase(me->GetVictim(), 0.0f);
+            me->ResumeChasingVictim();
             me->RemoveAurasDueToSpell(SPELL_METAMORPHOSIS);
             scheduler.CancelGroup(GROUP_DEMON);
             ElfTime();
@@ -223,9 +229,7 @@ struct boss_leotheras_the_blind : public BossAI
         if (me->GetDisplayId() == me->GetNativeDisplayId())
         {
             if (me->GetReactState() != REACT_PASSIVE)
-            {
                 DoMeleeAttackIfReady();
-            }
         }
         else if (me->isAttackReady(BASE_ATTACK))
         {
@@ -235,9 +239,7 @@ struct boss_leotheras_the_blind : public BossAI
                 DoMeleeAttackIfReady();
             }
             else
-            {
                 me->setAttackTimer(BASE_ATTACK, 2000);
-            }
         }
     }
 private:
@@ -247,12 +249,7 @@ private:
 struct npc_inner_demon : public ScriptedAI
 {
     npc_inner_demon(Creature* creature) : ScriptedAI(creature)
-    {
-        scheduler.SetValidator([this]
-        {
-            return !me->HasUnitState(UNIT_STATE_CASTING);
-        });
-    }
+    {    }
 
     void IsSummonedBy(WorldObject* summoner) override
     {

@@ -1,5 +1,5 @@
-#ifndef _BOT_GRIDNOTIFIERS_H
-#define _BOT_GRIDNOTIFIERS_H
+#ifndef BOT_GRIDNOTIFIERS_H
+#define BOT_GRIDNOTIFIERS_H
 
 #include "bot_ai.h"
 #include "botspell.h"
@@ -36,26 +36,26 @@ struct Unit2LastSearcher
 
     void Visit(CreatureMapType &m)
     {
-        for (CreatureMapType::iterator itr = m.begin(); itr != m.end(); ++itr)
+        for (auto const& d : m)
         {
-            switch ((uint32)i_check(itr->GetSource()))
+            switch (static_cast<uint32>(i_check(d.GetSource())))
             {
-                case 1: i_result1 = itr->GetSource(); break;
-                case 2: i_result2 = itr->GetSource(); break;
-                default:                              break;
+                case 1: i_result1 = d.GetSource(); break;
+                case 2: i_result2 = d.GetSource(); break;
+                default:                           break;
             }
         }
     }
 
     void Visit(PlayerMapType &m)
     {
-        for (PlayerMapType::iterator itr = m.begin(); itr != m.end(); ++itr)
+        for (auto const& d : m)
         {
-            switch ((uint32)i_check(itr->GetSource()))
+            switch (static_cast<uint32>(i_check(d.GetSource())))
             {
-                case 1: i_result1 = itr->GetSource(); break;
-                case 2: i_result2 = itr->GetSource(); break;
-                default:                              break;
+                case 1: i_result1 = d.GetSource(); break;
+                case 2: i_result2 = d.GetSource(); break;
+                default:                           break;
             }
         }
     }
@@ -84,7 +84,7 @@ class ImmunityShieldDispelTargetCheck
             //    return false;
             if (!ai->IsInBotParty(u->GetVictim()))
                 return false;
-            if (!u->HasAuraWithMechanic(1<<MECHANIC_IMMUNE_SHIELD))
+            if (!u->HasAuraWithMechanic(1u<<MECHANIC_IMMUNE_SHIELD))
                 return false;
 
             if (!u->IsWithinLOSInMap(me, VMAP::ModelIgnoreFlags::M2, LINEOFSIGHT_ALL_CHECKS))
@@ -96,7 +96,6 @@ class ImmunityShieldDispelTargetCheck
         Unit const* me;
         float range;
         bot_ai const* ai;
-        ImmunityShieldDispelTargetCheck(ImmunityShieldDispelTargetCheck const&);
 };
 
 class NearestHostileUnitCheck
@@ -111,7 +110,7 @@ class NearestHostileUnitCheck
         NearestHostileUnitCheck(NearestHostileUnitCheck const&) = delete;
         explicit NearestHostileUnitCheck(Unit const* unit, float dist, bool magic, bot_ai const* m_ai, bool targetCCed, bool withSecondary) :
         me(unit), m_range(dist), byspell(magic), ai(m_ai), AttackCCed(targetCCed), checkSecondary(withSecondary)
-        { free = ai->IAmFree(); berserk = free && (ai->IsWanderer() || unit->GetFaction() == 14); }
+        { free = ai->IAmFree(); berserk = free && (ai->IsWanderer() || unit->GetFaction() == FACTION_TEMPLATE_NEUTRAL_HOSTILE); }
         explicit NearestHostileUnitCheck(Unit const* unit, float dist, bool magic, bot_ai const* m_ai) :
         NearestHostileUnitCheck(unit, dist, magic, m_ai, true, false)
         {}
@@ -131,7 +130,7 @@ class NearestHostileUnitCheck
             //    return false;
             if (!AttackCCed && (u->HasUnitState(UNIT_STATE_CONFUSED | UNIT_STATE_STUNNED | UNIT_STATE_FLEEING | UNIT_STATE_DISTRACTED | UNIT_STATE_CONFUSED_MOVE | UNIT_STATE_FLEEING_MOVE)))
                 return INVALID;//do not allow CCed units if checked
-            //if (u->HasUnitState(UNIT_STATE_CASTING) && (u->GetTypeId() == TYPEID_PLAYER || u->IsPet()))
+            //if (u->HasUnitState(UNIT_STATE_CASTING) && (u->IsPlayer() || u->IsPet()))
             //    for (uint8 i = 0; i != CURRENT_MAX_SPELL; ++i)
             //        if (Spell* spell = u->GetCurrentSpell(i))
             //            if (ai->IsInBotParty(spell->m_targets.GetUnitTarget()))
@@ -201,7 +200,6 @@ class NearbyHostileVehicleTargetCheck
         Unit const* veh;
         float m_range;
         bot_ai const* ai;
-        NearbyHostileVehicleTargetCheck(NearbyHostileVehicleTargetCheck const&);
 };
 
 class HostileDispelTargetCheck
@@ -240,17 +238,14 @@ class HostileDispelTargetCheck
                 //        return false; //immune to dispel magic
                 //}
 
-                Unit::AuraApplicationMap const &AurApps = u->GetAppliedAuras();
-                SpellInfo const* Info;
-                uint32 id;
-                for (Unit::AuraApplicationMap::const_iterator itr = AurApps.begin(); itr != AurApps.end(); ++itr)
+                for (auto const& [_, auraApp] : u->GetAppliedAuras())
                 {
-                    Info = itr->second->GetBase()->GetSpellInfo();
-                    if (itr->second->IsPositive() && Info->Dispel == DISPEL_MAGIC &&
+                   SpellInfo const*  Info = auraApp->GetBase()->GetSpellInfo();
+                    if (auraApp->IsPositive() && Info->Dispel == DISPEL_MAGIC &&
                         !(Info->Attributes & (SPELL_ATTR0_PASSIVE | SPELL_ATTR0_DO_NOT_DISPLAY)) &&
                         !(checksteal && (Info->AttributesEx4 & SPELL_ATTR4_CANNOT_BE_STOLEN)))
                     {
-                        id = Info->Id;
+                        uint32 id = Info->Id;
                         if (id != 20050 && id != 20052 && id != 20053 && //Vengeance
                             id != 50447 && id != 50448 && id != 50449) //Bloody Vengeance
                             return true;
@@ -284,7 +279,6 @@ class HostileDispelTargetCheck
         float m_range;
         bool checksteal;
         bot_ai const* ai;
-        HostileDispelTargetCheck(HostileDispelTargetCheck const&);
 };
 
 class AffectedTargetCheck
@@ -301,19 +295,17 @@ class AffectedTargetCheck
             if (!checker->IsWithinDistInMap(u, m_range))
                 return false;
             if (needhostile == 0 && !u->IsHostileTo(checker)) return false;
-            //else if (needhostile == 1 && !(gr && gr->IsMember(u->GetGUID()) && u->GetTypeId() == TYPEID_PLAYER)) return false;
+            //else if (needhostile == 1 && !(gr && gr->IsMember(u->GetGUID()) && u->IsPlayer())) return false;
             //else if (needhostile == 2 && !(gr && gr->IsMember(u->GetGUID()))) return false;
             else if (needhostile == 3 && !u->IsFriendlyTo(checker)) return false;
-            else if (needhostile == 4 && !(u->GetTypeId() == TYPEID_PLAYER && u->IsFriendlyTo(checker))) return false;
+            else if (needhostile == 4 && !(u->IsPlayer() && u->IsFriendlyTo(checker))) return false;
 
             //if (u->HasAura(spell, caster)
             //    return true;
 
-            Unit::AuraApplicationMap const &Auras = u->GetAppliedAuras();
-            for (Unit::AuraApplicationMap::const_iterator itr = Auras.begin(); itr != Auras.end(); ++itr)
+            for (auto const& [spell_id, auraApp] : u->GetAppliedAuras())
             {
-                AuraApplication const* auraApp = itr->second;
-                if (itr->first == spell)
+                if (spell_id == spell)
                     if (caster.IsEmpty() || auraApp->GetBase()->GetCasterGUID() == caster)
                         return true;
             }
@@ -325,7 +317,6 @@ class AffectedTargetCheck
         uint32 const spell;
         Player const* checker;
         uint8 needhostile;
-        AffectedTargetCheck(AffectedTargetCheck const&);
 };
 
 class PolyUnitCheck
@@ -360,8 +351,9 @@ class PolyUnitCheck
                 return false;
             if (u->IsPolymorphed() ||
                 u->isFrozen() ||
-                u->isInRoots() ||
+                u->HasRootAura() ||
                 u->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE) ||
+                u->HasAuraType(SPELL_AURA_MOD_PACIFY) ||
                 u->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE) ||
                 u->HasAuraTypeWithFamilyFlags(SPELL_AURA_MOD_STUN, SPELLFAMILY_PALADIN, 0x4))
                 return false;
@@ -376,13 +368,12 @@ class PolyUnitCheck
     private:
         Unit const* me;
         float m_range;
-        PolyUnitCheck(PolyUnitCheck const&);
 };
 
 class FearUnitCheck
 {
     public:
-        explicit FearUnitCheck(Unit const* unit, float dist = 30) : me(unit), m_range(dist) {}
+        explicit FearUnitCheck(Unit const* unit, float dist, bot_ai const* ai) : me(unit), m_range(dist), m_ai(ai) {}
         bool operator()(Unit const* u) const
         {
             if (!_botPvP && me->IsPvP() && u->IsControlledByPlayer())
@@ -395,7 +386,9 @@ class FearUnitCheck
                 return false;
             if (u->HasUnitState(UNIT_STATE_CONFUSED | UNIT_STATE_STUNNED | UNIT_STATE_FLEEING | UNIT_STATE_DISTRACTED | UNIT_STATE_CONFUSED_MOVE | UNIT_STATE_FLEEING_MOVE))
                 return false;
-            if (u->isFeared())
+            if (u->HasFearAura())
+                return false;
+            if (u->HasAuraType(SPELL_AURA_MOD_PACIFY) || u->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE))
                 return false;
             if (!me->IsWithinDistInMap(u, m_range))
                 return false;
@@ -408,7 +401,9 @@ class FearUnitCheck
                 return false;
             if (!u->isTargetableForAttack())
                 return false;
-            if (u->getAttackers().size() > 1 && u->GetVictim() != me)
+            if (u->getAttackers().size() > 2)
+                return false;
+            if (!m_ai->IsInBotParty(u->GetVictim()))
                 return false;
             //Unit::GetDiminishing() should be const but it isn't
             if (const_cast<Unit*>(u)->GetDiminishing(DIMINISHING_FEAR) > DIMINISHING_LEVEL_3)
@@ -428,7 +423,7 @@ class FearUnitCheck
     private:
         Unit const* me;
         float m_range;
-        FearUnitCheck(FearUnitCheck const&);
+        bot_ai const* m_ai;
 };
 
 class StunUnitCheck
@@ -446,6 +441,8 @@ class StunUnitCheck
             if (!u->InSamePhase(me))
                 return false;
             if (u->HasUnitState(UNIT_STATE_CONFUSED | UNIT_STATE_STUNNED | UNIT_STATE_FLEEING | UNIT_STATE_DISTRACTED | UNIT_STATE_CONFUSED_MOVE | UNIT_STATE_FLEEING_MOVE))
+                return false;
+            if (u->HasAuraType(SPELL_AURA_MOD_PACIFY) || u->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE))
                 return false;
             if (!me->IsWithinDistInMap(u, m_range))
                 return false;
@@ -504,7 +501,6 @@ class StunUnitCheck
     private:
         Unit const* me;
         float m_range;
-        StunUnitCheck(StunUnitCheck const&);
 };
 
 class UndeadCCUnitCheck
@@ -531,6 +527,8 @@ class UndeadCCUnitCheck
             if (_unattacked && !u->getAttackers().empty())
                 return false;
             if (u->HasUnitState(UNIT_STATE_CONFUSED | UNIT_STATE_STUNNED | UNIT_STATE_FLEEING | UNIT_STATE_DISTRACTED | UNIT_STATE_CONFUSED_MOVE | UNIT_STATE_FLEEING_MOVE))
+                return false;
+            if (u->HasAuraType(SPELL_AURA_MOD_PACIFY) || u->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE))
                 return false;
             if (me->ToCreature()->GetBotClass() == BOT_CLASS_PRIEST &&
                 !(u->GetCreatureType() == CREATURE_TYPE_UNDEAD && !u->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE)))
@@ -559,7 +557,6 @@ class UndeadCCUnitCheck
         bot_ai const* m_ai;
         uint32 m_spellId;
         bool _unattacked;
-        UndeadCCUnitCheck(UndeadCCUnitCheck const&);
 };
 
 class RootUnitCheck
@@ -587,7 +584,7 @@ class RootUnitCheck
                 return false;
             if (!u->isTargetableForAttack(false))
                 return false;
-            if (u->isFrozen() || u->isInRoots())
+            if (u->isFrozen() || u->HasRootAura())
                 return false;
             if (!u->getAttackers().empty())
                 return false;
@@ -596,6 +593,7 @@ class RootUnitCheck
             if (u->GetReactionTo(me) > REP_NEUTRAL)
                 return false;
             if (u->IsPolymorphed() ||
+                u->HasAuraType(SPELL_AURA_MOD_PACIFY) ||
                 u->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE)/*hex*/ ||
                 u->HasAuraTypeWithFamilyFlags(SPELL_AURA_MOD_STUN, SPELLFAMILY_PALADIN, 0x4)/*repentance*/ ||
                 u->HasAuraTypeWithFamilyFlags(SPELL_AURA_MOD_STUN, SPELLFAMILY_PRIEST, 0x40000000)/*shackle undead*/)
@@ -612,7 +610,6 @@ class RootUnitCheck
         float m_range;
         bot_ai const* m_ai;
         uint32 m_spellId;
-        RootUnitCheck(RootUnitCheck const&);
 };
 
 class CastingUnitCheck
@@ -676,7 +673,7 @@ class CastingUnitCheck
                 if (u->IsImmunedToSpell(spellInfo))
                     return false;
 
-                if (me->GetTypeId() == TYPEID_UNIT && me->ToCreature()->GetBotAI() && me->ToCreature()->GetBotAI()->IsPointedNoDPSTarget(u) &&
+                if (me->IsCreature() && me->ToCreature()->GetBotAI() && me->ToCreature()->GetBotAI()->IsPointedNoDPSTarget(u) &&
                     bot_ai::IsDamagingSpell(spellInfo))
                     return false;
 
@@ -691,14 +688,13 @@ class CastingUnitCheck
         {
             if (spellInfo->HasEffect(SPELL_EFFECT_INTERRUPT_CAST) && spellInfo->GetFirstRankSpell()->Id != 853) //hammer of justice
             {
-                if (u->GetTypeId() == TYPEID_UNIT &&
-                    (u->ToCreature()->GetCreatureTemplate()->MechanicImmuneMask & (1 << (MECHANIC_INTERRUPT - 1))))
+                if (u->IsCreature() &&
+                    (u->ToCreature()->HasMechanicTemplateImmunity(1u << (MECHANIC_INTERRUPT - 1))))
                     return false;
 
-                Spell* curSpell;
                 for (uint8 i = CURRENT_FIRST_NON_MELEE_SPELL; i != CURRENT_AUTOREPEAT_SPELL; ++i)
                 {
-                    curSpell = u->GetCurrentSpell(i);
+                    Spell const* curSpell = u->GetCurrentSpell(i);
                     if (!curSpell)
                         continue;
 
@@ -723,14 +719,13 @@ class CastingUnitCheck
             }
             if (silenceSpell)
             {
-                if (u->GetTypeId() == TYPEID_UNIT &&
-                    (u->ToCreature()->GetCreatureTemplate()->MechanicImmuneMask & (1 << (MECHANIC_SILENCE - 1))))
+                if (u->IsCreature() &&
+                    (u->ToCreature()->HasMechanicTemplateImmunity(1u << (MECHANIC_SILENCE - 1))))
                     return false;
 
-                Spell* curSpell;
                 for (uint8 i = CURRENT_FIRST_NON_MELEE_SPELL; i != CURRENT_AUTOREPEAT_SPELL; ++i)
                 {
-                    curSpell = u->GetCurrentSpell(i);
+                    Spell const* curSpell = u->GetCurrentSpell(i);
                     if (curSpell && curSpell->GetSpellInfo()->PreventionType != SPELL_PREVENTION_TYPE_SILENCE)
                         return false;
                 }
@@ -744,7 +739,6 @@ class CastingUnitCheck
         float min_range, max_range;
         uint32 m_spell;
         uint8 m_minHpPct;
-        CastingUnitCheck(CastingUnitCheck const&);
 };
 
 class SecondEnemyCheck
@@ -779,7 +773,6 @@ class SecondEnemyCheck
         float m_range, m_splashrange;
         Unit const* mytar;
         bot_ai const* ai;
-        SecondEnemyCheck(SecondEnemyCheck const&);
 };
 
 class TranquilTargetCheck
@@ -804,18 +797,15 @@ class TranquilTargetCheck
             {
                 if (u->IsImmunedToSpell(sSpellMgr->GetSpellInfo(19801)))
                     return false;//immune to tranquilizing shot
-                Unit::AuraMap const &Auras = u->GetOwnedAuras();
-                for (Unit::AuraMap::const_iterator itr = Auras.begin(); itr != Auras.end(); ++itr)
+                for (auto const& [_, aura] : u->GetOwnedAuras())
                 {
-                    SpellInfo const* Info = itr->second->GetSpellInfo();
+                    SpellInfo const* Info = aura->GetSpellInfo();
                     if (Info->Dispel != DISPEL_MAGIC && Info->Dispel != DISPEL_ENRAGE) continue;
                     if (Info->Attributes & (SPELL_ATTR0_PASSIVE | SPELL_ATTR0_DO_NOT_DISPLAY)) continue;
                     //if (Info->AttributesEx & SPELL_ATTR1_NO_AURA_ICON) continue;
-                    AuraApplication const* aurApp = itr->second->GetApplicationOfTarget(u->GetGUID());
+                    AuraApplication const* aurApp = aura->GetApplicationOfTarget(u->GetGUID());
                     if (aurApp && aurApp->IsPositive())
-                    {
                         return true;
-                    }
                 }
             }
 
@@ -825,7 +815,6 @@ class TranquilTargetCheck
         Unit const* me;
         float min_range, max_range;
         bot_ai const* ai;
-        TranquilTargetCheck(TranquilTargetCheck const&);
 };
 
 class NearbyHostileUnitCheck
@@ -881,7 +870,6 @@ class NearbyHostileUnitCheck
         uint8 m_CCoption;
         bool free;
         WorldObject const* _source;
-        NearbyHostileUnitCheck(NearbyHostileUnitCheck const&);
 };
 
 class NearbyHostileUnitInConeCheck
@@ -934,7 +922,6 @@ class NearbyHostileUnitInConeCheck
         bot_ai const* ai;
         float cone;
         bool free;
-        NearbyHostileUnitInConeCheck(NearbyHostileUnitInConeCheck const&);
 };
 
 class NearbyFriendlyUnitCheck
@@ -972,7 +959,6 @@ class NearbyFriendlyUnitCheck
         Unit const* me;
         float max_range;
         bot_ai const* ai;
-        NearbyFriendlyUnitCheck(NearbyFriendlyUnitCheck const&);
 };
 
 class FarTauntUnitCheck
@@ -991,6 +977,8 @@ class FarTauntUnitCheck
             if (!u->InSamePhase(me))
                 return false;
             if (u->HasUnitState(UNIT_STATE_CONFUSED|UNIT_STATE_STUNNED|UNIT_STATE_FLEEING|UNIT_STATE_DISTRACTED|UNIT_STATE_CONFUSED_MOVE))
+                return false;
+            if (u->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE))
                 return false;
             if (!u->GetVictim() || u->GetVictim() == me)
                 return false;
@@ -1033,7 +1021,6 @@ class FarTauntUnitCheck
         const float max_range;
         const bool targetAlly;
         const bot_ai* const ai;
-        FarTauntUnitCheck(FarTauntUnitCheck const&);
 };
 
 class ManaDrainUnitCheck
@@ -1053,7 +1040,7 @@ class ManaDrainUnitCheck
                 return false;
             if (!u->InSamePhase(me))
                 return false;
-            if (u->GetTypeId() == TYPEID_PLAYER && !u->HasUnitState(UNIT_STATE_CONFUSED|UNIT_STATE_STUNNED|UNIT_STATE_FLEEING|UNIT_STATE_DISTRACTED|UNIT_STATE_CONFUSED_MOVE))
+            if (u->IsPlayer() && !u->HasUnitState(UNIT_STATE_CONFUSED|UNIT_STATE_STUNNED|UNIT_STATE_FLEEING|UNIT_STATE_DISTRACTED|UNIT_STATE_CONFUSED_MOVE))
                 return false;
             //if (u->IsControlledByPlayer())
             //    return false;
@@ -1086,7 +1073,6 @@ class ManaDrainUnitCheck
         bot_ai const* ai;
         uint32 maxPool;
         bool free;
-        ManaDrainUnitCheck(ManaDrainUnitCheck const&);
 };
 
 class NearbyRezTargetCheck
@@ -1097,7 +1083,7 @@ class NearbyRezTargetCheck
         {
             if (u == me)
                 return false;
-            if (u->GetTypeId() != TYPEID_PLAYER && u->GetTypeId() != TYPEID_CORPSE)
+            if (!u->IsPlayer() && !u->IsCorpse())
                 return false;
             if (!u->InSamePhase(me))
                 return false;
@@ -1125,7 +1111,6 @@ class NearbyRezTargetCheck
         Unit const* me;
         float max_range;
         bot_ai const* ai;
-        NearbyRezTargetCheck(NearbyRezTargetCheck const&);
 };
 
 class NearestLockedGameObjectInRangeCheck
@@ -1147,8 +1132,6 @@ public:
 private:
     WorldObject const* _unit;
     float _range;
-
-    NearestLockedGameObjectInRangeCheck(NearestLockedGameObjectInRangeCheck const&);
 };
 
 class NearestVehicleWithEmptySeatInRangeCheck
@@ -1158,7 +1141,7 @@ public:
     { ASSERT(_unit->isType(TYPEMASK_UNIT)); }
     bool operator()(Unit* u)
     {
-        if (u->GetTypeId() == TYPEID_UNIT && u->IsVehicle() && u->IsAlive() && u != _exveh &&
+        if (u->IsCreature() && u->IsVehicle() && u->IsAlive() && u != _exveh &&
             u->GetVehicleKit()->GetAvailableSeatCount() > 0 && _unit->IsWithinDistInMap(u, _range))
         {
             _range = _unit->GetExactDist(u);
@@ -1170,8 +1153,6 @@ private:
     WorldObject const* _unit;
     float _range;
     Unit const* _exveh; //only compare, may be NULL
-
-    NearestVehicleWithEmptySeatInRangeCheck(NearestVehicleWithEmptySeatInRangeCheck const&);
 };
 
 //Professions
@@ -1179,7 +1160,7 @@ class NearbyObjectBySkillCheck
 {
 public:
     NearbyObjectBySkillCheck(WorldObject const* checker, float const range, uint32 skillMask) :
-      _checker(checker), _range(range), _skillMask(skillMask) { ASSERT(_checker->GetTypeId() == TYPEID_PLAYER); }
+      _checker(checker), _range(range), _skillMask(skillMask) { ASSERT(_checker->IsPlayer()); }
 
     bool operator()(WorldObject const* ob)
     {
@@ -1246,8 +1227,6 @@ private:
 
         //return level <= 60 ? level * 5 : 300 + (((level - 60) * 15) / 2);
     }
-
-    NearbyObjectBySkillCheck(NearbyObjectBySkillCheck const&);
 };
 
 //Autolooting
@@ -1255,7 +1234,7 @@ class NearbyLootableCreatureCheck
 {
 public:
     NearbyLootableCreatureCheck(WorldObject* checker, float const range) : _checker(checker), _range(range)
-    { ASSERT(_checker->GetTypeId() == TYPEID_PLAYER); }
+    { ASSERT(_checker->IsPlayer()); }
 
     bool operator()(Unit const* unit)
     {
@@ -1269,8 +1248,6 @@ public:
 private:
     WorldObject* _checker;
     float const _range;
-
-    NearbyLootableCreatureCheck(NearbyLootableCreatureCheck const&);
 };
 
 //AoE caster dynobject
@@ -1299,7 +1276,6 @@ class NearbyHostileAoEDynobjectCheck
     private:
         Unit const* _me;
         float _range;
-        NearbyHostileAoEDynobjectCheck(NearbyHostileAoEDynobjectCheck const&);
 };
 
 namespace BOTAI_PRED

@@ -1,26 +1,19 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
-/* ScriptData
-Name: ban_commandscript
-%Complete: 100
-Comment: All ban related commands
-Category: commandscripts
-EndScriptData */
 
 #include "AccountMgr.h"
 #include "BanMgr.h"
@@ -32,6 +25,7 @@ EndScriptData */
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "RBAC.h"
 
 /// Ban function modes
 enum BanMode
@@ -56,32 +50,32 @@ public:
     {
         static ChatCommandTable unbanCommandTable =
         {
-            { "account",       HandleUnBanAccountCommand,       SEC_ADMINISTRATOR, Console::Yes },
-            { "character",     HandleUnBanCharacterCommand,     SEC_ADMINISTRATOR, Console::Yes },
-            { "playeraccount", HandleUnBanAccountByCharCommand, SEC_ADMINISTRATOR, Console::Yes },
-            { "ip",            HandleUnBanIPCommand,            SEC_ADMINISTRATOR, Console::Yes }
+            { "account",       HandleUnBanAccountCommand,       rbac::RBAC_PERM_COMMAND_UNBAN_ACCOUNT, Console::Yes },
+            { "character",     HandleUnBanCharacterCommand,     rbac::RBAC_PERM_COMMAND_UNBAN_CHARACTER, Console::Yes },
+            { "playeraccount", HandleUnBanAccountByCharCommand, rbac::RBAC_PERM_COMMAND_UNBAN_PLAYERACCOUNT, Console::Yes },
+            { "ip",            HandleUnBanIPCommand,            rbac::RBAC_PERM_COMMAND_UNBAN_IP, Console::Yes }
         };
 
         static ChatCommandTable banlistCommandTable =
         {
-            { "account",      HandleBanListAccountCommand,   SEC_GAMEMASTER, Console::Yes },
-            { "character",    HandleBanListCharacterCommand, SEC_GAMEMASTER, Console::Yes },
-            { "ip",           HandleBanListIPCommand,        SEC_GAMEMASTER, Console::Yes }
+            { "account",      HandleBanListAccountCommand,   rbac::RBAC_PERM_COMMAND_BANLIST_ACCOUNT, Console::Yes },
+            { "character",    HandleBanListCharacterCommand, rbac::RBAC_PERM_COMMAND_BANLIST_CHARACTER, Console::Yes },
+            { "ip",           HandleBanListIPCommand,        rbac::RBAC_PERM_COMMAND_BANLIST_IP, Console::Yes }
         };
 
         static ChatCommandTable baninfoCommandTable =
         {
-            { "account",      HandleBanInfoAccountCommand,   SEC_GAMEMASTER, Console::Yes },
-            { "character",    HandleBanInfoCharacterCommand, SEC_GAMEMASTER, Console::Yes },
-            { "ip",           HandleBanInfoIPCommand,        SEC_GAMEMASTER, Console::Yes }
+            { "account",      HandleBanInfoAccountCommand,   rbac::RBAC_PERM_COMMAND_BANINFO_ACCOUNT, Console::Yes },
+            { "character",    HandleBanInfoCharacterCommand, rbac::RBAC_PERM_COMMAND_BANINFO_CHARACTER, Console::Yes },
+            { "ip",           HandleBanInfoIPCommand,        rbac::RBAC_PERM_COMMAND_BANINFO_IP, Console::Yes }
         };
 
         static ChatCommandTable banCommandTable =
         {
-            { "account",      HandleBanAccountCommand,       SEC_GAMEMASTER, Console::Yes },
-            { "character",    HandleBanCharacterCommand,     SEC_GAMEMASTER, Console::Yes },
-            { "playeraccount",HandleBanAccountByCharCommand, SEC_GAMEMASTER, Console::Yes },
-            { "ip",           HandleBanIPCommand,            SEC_GAMEMASTER, Console::Yes }
+            { "account",      HandleBanAccountCommand,       rbac::RBAC_PERM_COMMAND_BAN_ACCOUNT, Console::Yes },
+            { "character",    HandleBanCharacterCommand,     rbac::RBAC_PERM_COMMAND_BAN_CHARACTER, Console::Yes },
+            { "playeraccount",HandleBanAccountByCharCommand, rbac::RBAC_PERM_COMMAND_BAN_PLAYERACCOUNT, Console::Yes },
+            { "ip",           HandleBanIPCommand,            rbac::RBAC_PERM_COMMAND_BAN_IP, Console::Yes }
         };
 
         static ChatCommandTable commandTable =
@@ -207,14 +201,14 @@ public:
         switch (mode)
         {
             case BAN_ACCOUNT:
-                banReturn = sBan->BanAccount(nameOrIP, durationStr, reasonStr, handler->GetSession() ? handler->GetSession()->GetPlayerName() : "");
+                banReturn = sBan->BanAccount(nameOrIP, durationStr, reasonStr, handler->GetSession() ? handler->GetSession()->GetPlayerName() : "Console");
                 break;
             case BAN_CHARACTER:
-                banReturn = sBan->BanAccountByPlayerName(nameOrIP, durationStr, reasonStr, handler->GetSession() ? handler->GetSession()->GetPlayerName() : "");
+                banReturn = sBan->BanAccountByPlayerName(nameOrIP, durationStr, reasonStr, handler->GetSession() ? handler->GetSession()->GetPlayerName() : "Console");
                 break;
             case BAN_IP:
             default:
-                banReturn = sBan->BanIP(nameOrIP, durationStr, reasonStr, handler->GetSession() ? handler->GetSession()->GetPlayerName() : "");
+                banReturn = sBan->BanIP(nameOrIP, durationStr, reasonStr, handler->GetSession() ? handler->GetSession()->GetPlayerName() : "Console");
                 break;
         }
 
@@ -444,7 +438,7 @@ public:
                 if (banResult)
                 {
                     Field* fields2 = banResult->Fetch();
-                    handler->PSendSysMessage("%s", fields2[0].Get<std::string>());
+                    handler->PSendSysMessage("{}", fields2[0].Get<std::string>());
                 }
             } while (result->NextRow());
         }
@@ -480,14 +474,14 @@ public:
 
                         if (fields2[0].Get<uint32>() == fields2[1].Get<uint32>())
                         {
-                            handler->PSendSysMessage("|%-15.15s|%02d-%02d-%02d %02d:%02d|   permanent  |%-15.15s|%-15.15s|",
+                            handler->PSendSysMessage("|{:<15.15}|{:02}-{:02}-{:02} {:02}:{:02}|   permanent  |{:<15.15}|{:<15.15}|",
                                                      accountName, tmBan.tm_year % 100, tmBan.tm_mon + 1, tmBan.tm_mday, tmBan.tm_hour, tmBan.tm_min,
                                                      fields2[2].Get<std::string>(), fields2[3].Get<std::string>());
                         }
                         else
                         {
                             tm tmUnban = Acore::Time::TimeBreakdown(fields2[1].Get<uint32>());
-                            handler->PSendSysMessage("|%-15.15s|%02d-%02d-%02d %02d:%02d|%02d-%02d-%02d %02d:%02d|%-15.15s|%-15.15s|",
+                            handler->PSendSysMessage("|{:<15.15}|{:02}-{:02}-{:02} {:02}:{:02}|{:02}-{:02}-{:02} {:02}:{:02}|{:<15.15}|{:<15.15}|",
                                                      accountName, tmBan.tm_year % 100, tmBan.tm_mon + 1, tmBan.tm_mday, tmBan.tm_hour, tmBan.tm_min,
                                                      tmUnban.tm_year % 100, tmUnban.tm_mon + 1, tmUnban.tm_mday, tmUnban.tm_hour, tmUnban.tm_min,
                                                      fields2[2].Get<std::string>(), fields2[3].Get<std::string>());
@@ -534,7 +528,7 @@ public:
 
                 PreparedQueryResult banResult = CharacterDatabase.Query(stmt2);
                 if (banResult)
-                    handler->PSendSysMessage("%s", (*banResult)[0].Get<std::string>());
+                    handler->PSendSysMessage("{}", (*banResult)[0].Get<std::string>());
             } while (result->NextRow());
         }
         // Console wide output
@@ -564,14 +558,14 @@ public:
 
                         if (banFields[0].Get<uint32>() == banFields[1].Get<uint32>())
                         {
-                            handler->PSendSysMessage("|%-15.15s|%02d-%02d-%02d %02d:%02d|   permanent  |%-15.15s|%-15.15s|",
+                            handler->PSendSysMessage("|{:<15.15}|{:02}-{:02}-{:02} {:02}:{:02}|   permanent  |{:<15.15}|{:<15.15}|",
                                                      char_name, tmBan.tm_year % 100, tmBan.tm_mon + 1, tmBan.tm_mday, tmBan.tm_hour, tmBan.tm_min,
                                                      banFields[2].Get<std::string>(), banFields[3].Get<std::string>());
                         }
                         else
                         {
                             tm tmUnban = Acore::Time::TimeBreakdown(banFields[1].Get<uint32>());
-                            handler->PSendSysMessage("|%-15.15s|%02d-%02d-%02d %02d:%02d|%02d-%02d-%02d %02d:%02d|%-15.15s|%-15.15s|",
+                            handler->PSendSysMessage("|{:<15.15}|{:02}-{:02}-{:02} {:02}:{:02}|{:02}-{:02}-{:02} {:02}:{:02}|{:<15.15}|{:<15.15}|",
                                                      char_name, tmBan.tm_year % 100, tmBan.tm_mon + 1, tmBan.tm_mday, tmBan.tm_hour, tmBan.tm_min,
                                                      tmUnban.tm_year % 100, tmUnban.tm_mon + 1, tmUnban.tm_mday, tmUnban.tm_hour, tmUnban.tm_min,
                                                      banFields[2].Get<std::string>(), banFields[3].Get<std::string>());
@@ -621,7 +615,7 @@ public:
             do
             {
                 Field* fields = result->Fetch();
-                handler->PSendSysMessage("%s", fields[0].Get<std::string>());
+                handler->PSendSysMessage("{}", fields[0].Get<std::string>());
             } while (result->NextRow());
         }
         // Console wide output
@@ -637,14 +631,14 @@ public:
                 tm tmBan = Acore::Time::TimeBreakdown(fields[1].Get<uint32>());
                 if (fields[1].Get<uint32>() == fields[2].Get<uint32>())
                 {
-                    handler->PSendSysMessage("|%-15.15s|%02d-%02d-%02d %02d:%02d|   permanent  |%-15.15s|%-15.15s|",
+                    handler->PSendSysMessage("{:<15.15}|{:02}-{:02}-{:02} {:02}:{:02}|   permanent  |{:<15.15}|{:<15.15}|",
                                              fields[0].Get<std::string>(), tmBan.tm_year % 100, tmBan.tm_mon + 1, tmBan.tm_mday, tmBan.tm_hour, tmBan.tm_min,
                                              fields[3].Get<std::string>(), fields[4].Get<std::string>());
                 }
                 else
                 {
                     tm tmUnban = Acore::Time::TimeBreakdown(fields[2].Get<uint32>());
-                    handler->PSendSysMessage("|%-15.15s|%02d-%02d-%02d %02d:%02d|%02d-%02d-%02d %02d:%02d|%-15.15s|%-15.15s|",
+                    handler->PSendSysMessage("|{:<15.15}|{:02}-{:02}-{:02} {:02}:{:02}|{:02}-{:02}-{:02} {:02}:{:02}|{:<15.15}|{:<15.15}|",
                                              fields[0].Get<std::string>(), tmBan.tm_year % 100, tmBan.tm_mon + 1, tmBan.tm_mday, tmBan.tm_hour, tmBan.tm_min,
                                              tmUnban.tm_year % 100, tmUnban.tm_mon + 1, tmUnban.tm_mday, tmUnban.tm_hour, tmUnban.tm_min,
                                              fields[3].Get<std::string>(), fields[4].Get<std::string>());

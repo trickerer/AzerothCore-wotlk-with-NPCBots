@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -29,7 +29,7 @@
 #include "ObjectAccessor.h"
 //end npcbot
 
-Totem::Totem(SummonPropertiesEntry const* properties, ObjectGuid owner) : Minion(properties, owner, false)
+Totem::Totem(SummonPropertiesEntry const* properties, ObjectGuid owner) : Minion(properties, owner)
 {
     m_unitTypeMask |= UNIT_MASK_TOTEM;
     m_duration = 0;
@@ -45,7 +45,7 @@ void Totem::Update(uint32 time)
 
     if (botOwner)
     {
-        if (!botOwner->IsAlive() || !IsAlive() || m_duration <= time)
+        if (!IsAlive() || m_duration <= time || (!botOwner->IsAlive() && !(m_Properties && m_Properties->Type == SUMMON_TYPE_LIGHTWELL)))
         {
             UnSummon();
             return;
@@ -53,9 +53,16 @@ void Totem::Update(uint32 time)
     }
     else
     //end npcbot
-    if (!owner || !owner->IsAlive() || !IsAlive() || m_duration <= time)
+    if (!owner || !IsAlive() || m_duration <= time)
     {
         UnSummon();                                         // remove self
+        return;
+    }
+
+    // If owner is dead and this is not a lightwell, despawn
+    if (!owner->IsAlive() && !(m_Properties && m_Properties->Type == SUMMON_TYPE_LIGHTWELL))
+    {
+        UnSummon();
         return;
     }
 
@@ -70,17 +77,20 @@ void Totem::InitStats(uint32 duration)
     if (Unit* owner = ObjectAccessor::GetUnit(*this, m_owner))
     {
         uint32 slot = m_Properties->Slot;
-        if (owner->IsPlayer() && slot >= SUMMON_SLOT_TOTEM && slot < MAX_TOTEM_SLOT)
+        if (owner->IsPlayer() && slot >= SUMMON_SLOT_TOTEM_FIRE && slot < MAX_TOTEM_SLOT)
         {
             WorldPackets::Totem::TotemCreated data;
             data.Totem = GetGUID();
-            data.Slot = slot - SUMMON_SLOT_TOTEM;
+            data.Slot = slot - SUMMON_SLOT_TOTEM_FIRE;
             data.Duration = duration;
             data.SpellID = GetUInt32Value(UNIT_CREATED_BY_SPELL);
             owner->ToPlayer()->SendDirectMessage(data.Write());
 
             // set display id depending on caster's race
-            SetDisplayId(owner->GetModelForTotem(PlayerTotemType(m_Properties->Id)));
+            //npcbot: handled in class AI for bot totems
+            if (!(GetCreatorGUID().IsCreature() && owner->ToPlayer()->HaveBot() && owner->ToPlayer()->GetBotMgr()->GetBot(GetCreatorGUID())))
+            //end npcbot
+            SetDisplayId(sObjectMgr->GetModelForTotem(SummonSlot(slot), Races(owner->getRace())));
         }
 
         SetLevel(owner->GetLevel());
@@ -138,11 +148,11 @@ void Totem::InitSummon()
     }
 }
 
-void Totem::UnSummon(uint32 msTime)
+void Totem::UnSummon(Milliseconds msTime)
 {
-    if (msTime)
+    if (msTime > 0ms)
     {
-        m_Events.AddEvent(new ForcedUnsummonDelayEvent(*this), m_Events.CalculateTime(msTime));
+        m_Events.AddEventAtOffset(new ForcedUnsummonDelayEvent(*this), msTime);
         return;
     }
 
@@ -152,7 +162,7 @@ void Totem::UnSummon(uint32 msTime)
     if (Unit* owner = GetOwner())
     {
         // clear owner's totem slot
-        for (uint8 i = SUMMON_SLOT_TOTEM; i < MAX_TOTEM_SLOT; ++i)
+        for (uint8 i = SUMMON_SLOT_TOTEM_FIRE; i < MAX_TOTEM_SLOT; ++i)
         {
             if (owner->m_SummonSlot[i] == GetGUID())
             {
@@ -196,7 +206,7 @@ void Totem::UnSummon(uint32 msTime)
     AddObjectToRemoveList();
 }
 
-bool Totem::IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index) const
+bool Totem::IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, Unit const* caster /*= nullptr*/) const
 {
     // xinef: immune to all positive spells, except of stoneclaw totem absorb, sentry totem bind sight and intervene
     // totems positive spells have unit_caster target
@@ -226,5 +236,5 @@ bool Totem::IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index) con
             break;
     }
 
-    return Creature::IsImmunedToSpellEffect(spellInfo, index);
+    return Creature::IsImmunedToSpellEffect(spellInfo, index, caster);
 }

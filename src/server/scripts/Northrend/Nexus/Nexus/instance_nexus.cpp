@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -18,8 +18,10 @@
 #include "CreatureScript.h"
 #include "InstanceMapScript.h"
 #include "ScriptedCreature.h"
+#include "TaskScheduler.h"
 #include "nexus.h"
 #include "Player.h"
+#include "Group.h"
 
 DoorData const doorData[] =
 {
@@ -32,7 +34,7 @@ DoorData const doorData[] =
 class instance_nexus : public InstanceMapScript
 {
 public:
-    instance_nexus() : InstanceMapScript("instance_nexus", 576) { }
+    instance_nexus() : InstanceMapScript("instance_nexus", MAP_THE_NEXUS) { }
 
     InstanceScript* GetInstanceScript(InstanceMap* map) const override
     {
@@ -43,6 +45,8 @@ public:
     {
         instance_nexus_InstanceMapScript(Map* map) : InstanceScript(map) {}
 
+        GuidVector _frayerGUIDs;
+
         void Initialize() override
         {
             SetHeaders(DataHeader);
@@ -52,39 +56,50 @@ public:
 
         void OnCreatureCreate(Creature* creature) override
         {
-            Map::PlayerList const& players = instance->GetPlayers();
-            TeamId TeamIdInInstance = TEAM_NEUTRAL;
-            if (!players.IsEmpty())
-                if (Player* pPlayer = players.begin()->GetSource())
-                    TeamIdInInstance = pPlayer->GetTeamId();
-
             switch (creature->GetEntry())
             {
                 case NPC_ALLIANCE_RANGER:
                     creature->SetFaction(FACTION_MONSTER_2);
-                    if (TeamIdInInstance == TEAM_ALLIANCE)
+                    if (GetTeamIdInInstance() == TEAM_ALLIANCE)
                         creature->UpdateEntry(NPC_HORDE_RANGER);
                     break;
                 case NPC_ALLIANCE_BERSERKER:
                     creature->SetFaction(FACTION_MONSTER_2);
-                    if (TeamIdInInstance == TEAM_ALLIANCE)
+                    if (GetTeamIdInInstance() == TEAM_ALLIANCE)
                         creature->UpdateEntry(NPC_HORDE_BERSERKER);
                     break;
                 case NPC_ALLIANCE_COMMANDER:
                     creature->SetFaction(FACTION_MONSTER_2);
-                    if (TeamIdInInstance == TEAM_ALLIANCE)
+                    if (GetTeamIdInInstance() == TEAM_ALLIANCE)
                         creature->UpdateEntry(NPC_HORDE_COMMANDER);
                     break;
                 case NPC_ALLIANCE_CLERIC:
                     creature->SetFaction(FACTION_MONSTER_2);
-                    if (TeamIdInInstance == TEAM_ALLIANCE)
+                    if (GetTeamIdInInstance() == TEAM_ALLIANCE)
                         creature->UpdateEntry(NPC_HORDE_CLERIC);
                     break;
                 case NPC_COMMANDER_STOUTBEARD:
                     creature->SetFaction(FACTION_MONSTER_2);
-                    if (TeamIdInInstance == TEAM_ALLIANCE)
+                    if (GetTeamIdInInstance() == TEAM_ALLIANCE)
                         creature->UpdateEntry(NPC_COMMANDER_KOLURG);
                     break;
+                case NPC_CRYSTALLINE_FRAYER:
+                    _frayerGUIDs.push_back(creature->GetGUID());
+                    break;
+            }
+        }
+
+        void KillAllFrayers()
+        {
+            for (ObjectGuid const& guid : _frayerGUIDs)
+            {
+                if (Creature* frayer = instance->GetCreature(guid))
+                {
+                    frayer->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+                    frayer->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+                    frayer->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_NPC);
+                    Unit::Kill(frayer, frayer);
+                }
             }
         }
 
@@ -146,7 +161,13 @@ public:
             if (!InstanceScript::SetBossState(id, state))
                 return false;
 
-            if (state != DONE || id > DATA_ORMOROK_EVENT)
+            if (state != DONE)
+                return true;
+
+            if (id == DATA_ORMOROK_EVENT)
+                KillAllFrayers();
+
+            if (id > DATA_ORMOROK_EVENT)
                 return true;
 
             BossInfo const* bossInfo = GetBossInfo(id + DATA_TELESTRA_ORB);
@@ -161,115 +182,137 @@ enum eFrayer
 {
     SPELL_SUMMON_SEED_POD               = 52796,
     SPELL_SEED_POD                      = 48082,
-    SPELL_AURA_OF_REGENERATION          = 52067,
+    SPELL_AURA_OF_REGENERATION          = 57056,
     SPELL_CRYSTAL_BLOOM                 = 48058,
-    SPELL_ENSNARE                       = 48053
+    SPELL_ENSNARE                       = 48053,
+
+    SAY_EMOTE                           = 0
 };
 
-class npc_crystalline_frayer : public CreatureScript
+enum FrayerGroups
 {
-public:
-    npc_crystalline_frayer() : CreatureScript("npc_crystalline_frayer") { }
+    GROUP_COMBAT    = 1,
+    GROUP_SEED_POD  = 2
+};
 
-    CreatureAI* GetAI(Creature* creature) const override
+struct npc_crystalline_frayer : public ScriptedAI
+{
+    npc_crystalline_frayer(Creature* creature) : ScriptedAI(creature) { }
+
+    bool _allowDeath;
+    bool _inSeedPod;
+    TaskScheduler _scheduler;
+
+    void Reset() override
     {
-        return GetNexusAI<npc_crystalline_frayerAI>(creature);
+        _allowDeath = false;
+        _inSeedPod = false;
+        _scheduler.CancelAll();
+
+        me->RemoveAllAuras();
+        me->SetObjectScale(1.0f);
+        me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+        me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+        me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_NPC);
+        me->SetRegeneratingHealth(true);
+        me->SetReactState(REACT_AGGRESSIVE);
+        me->GetMotionMaster()->MoveRandom(10.0f);
     }
 
-    struct npc_crystalline_frayerAI : public ScriptedAI
+    void JustEngagedWith(Unit*) override
     {
-        npc_crystalline_frayerAI(Creature* creature) : ScriptedAI(creature)
-        {
-        }
+        if (InstanceScript* instance = me->GetInstanceScript())
+            _allowDeath = instance->GetBossState(DATA_ORMOROK_EVENT) == DONE;
 
-        bool _allowDeath;
-        uint32 restoreTimer;
-        uint32 abilityTimer1;
-        uint32 abilityTimer2;
-
-        void Reset() override
+        _scheduler.Schedule(5s, GROUP_COMBAT, [this](TaskContext context)
         {
-            restoreTimer = 0;
-            abilityTimer1 = 0;
-            abilityTimer2 = 30000;
-            me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
-            me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
-        }
-
-        void JustEngagedWith(Unit*) override
+            DoCastVictim(SPELL_ENSNARE);
+            context.Repeat(5s);
+        }).Schedule(0s, GROUP_COMBAT, [this](TaskContext context)
         {
-            _allowDeath = me->GetInstanceScript()->GetBossState(DATA_ORMOROK_EVENT) == DONE;
-        }
+            DoCastVictim(SPELL_CRYSTAL_BLOOM);
+            context.Repeat(30s);
+        });
+    }
 
-        void EnterEvadeMode(EvadeReason why) override
-        {
-            if (me->isRegeneratingHealth())
-                ScriptedAI::EnterEvadeMode(why);
-        }
+    void EnterEvadeMode(EvadeReason why) override
+    {
+        if (!_inSeedPod)
+            ScriptedAI::EnterEvadeMode(why);
+    }
 
-        void DamageTaken(Unit*, uint32& damage, DamageEffectType, SpellSchoolMask) override
+    void DamageTaken(Unit*, uint32& damage, DamageEffectType, SpellSchoolMask) override
+    {
+        if (damage >= me->GetHealth())
         {
-            if (damage >= me->GetHealth())
+            if (!_allowDeath)
             {
-                if (!_allowDeath)
-                {
-                    me->RemoveAllAuras();
-                    me->GetThreatMgr().ClearAllThreat();
-                    me->CombatStop(true);
-                    damage = 0;
-
-                    me->SetReactState(REACT_PASSIVE);
-                    me->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
-                    me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
-                    me->SetRegeneratingHealth(false);
-                    me->CastSpell(me, SPELL_SUMMON_SEED_POD, true);
-                    me->CastSpell(me, SPELL_SEED_POD, true);
-                    me->CastSpell(me, SPELL_AURA_OF_REGENERATION, false);
-                    restoreTimer = 1;
-                }
+                damage = 0;
+                EnterSeedPod();
             }
         }
+    }
 
-        void UpdateAI(uint32 diff) override
+    void EnterSeedPod()
+    {
+        _inSeedPod = true;
+        _scheduler.CancelGroup(GROUP_COMBAT);
+
+        me->AttackStop();
+        me->GetThreatMgr().ClearAllThreat();
+        me->CombatStop(true);
+        me->RemoveAllAuras();
+
+        me->SetReactState(REACT_PASSIVE);
+        me->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+        me->SetUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+        me->SetUnitFlag(UNIT_FLAG_IMMUNE_TO_NPC);
+        me->SetRegeneratingHealth(false);
+        me->SetObjectScale(0.6f);
+
+        DoCastSelf(SPELL_SEED_POD, true);
+        DoCastSelf(SPELL_SUMMON_SEED_POD, true);
+        DoCastSelf(SPELL_AURA_OF_REGENERATION, true);
+
+        _scheduler.Schedule(90s, GROUP_SEED_POD, [this](TaskContext /*context*/)
         {
-            if (restoreTimer)
-            {
-                restoreTimer += diff;
-                if (restoreTimer >= 90 * IN_MILLISECONDS)
-                {
-                    Talk(0);
-                    me->SetRegeneratingHealth(true);
-                    restoreTimer = 0;
-                    me->SetReactState(REACT_AGGRESSIVE);
-                    me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
-                    me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
-                }
-                return;
-            }
+            LeaveSeedPod();
+        });
+    }
 
-            if (!UpdateVictim())
-                return;
+    void LeaveSeedPod()
+    {
+        _inSeedPod = false;
 
-            abilityTimer1 += diff;
-            abilityTimer2 += diff;
+        Talk(SAY_EMOTE);
 
-            if (abilityTimer1 >= 5000)
-            {
-                me->CastSpell(me->GetVictim(), SPELL_ENSNARE, false);
-                abilityTimer1 = 0;
-            }
+        me->RemoveAurasDueToSpell(SPELL_SEED_POD);
+        me->RemoveAurasDueToSpell(SPELL_AURA_OF_REGENERATION);
 
-            if (abilityTimer2 >= 30000)
-            {
-                me->CastSpell(me->GetVictim(), SPELL_CRYSTAL_BLOOM, false);
-                abilityTimer2 = 0;
-            }
-        }
-    };
+        me->SetObjectScale(1.0f);
+        me->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+        me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_PC);
+        me->RemoveUnitFlag(UNIT_FLAG_IMMUNE_TO_NPC);
+        me->SetRegeneratingHealth(true);
+
+        me->SetReactState(REACT_AGGRESSIVE);
+        me->GetMotionMaster()->MoveRandom(10.0f);
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        _scheduler.Update(diff);
+
+        if (_inSeedPod)
+            return;
+
+        if (!UpdateVictim())
+            return;
+    }
 };
 
 void AddSC_instance_nexus()
 {
     new instance_nexus();
-    new npc_crystalline_frayer();
+    RegisterNexusCreatureAI(npc_crystalline_frayer);
 }

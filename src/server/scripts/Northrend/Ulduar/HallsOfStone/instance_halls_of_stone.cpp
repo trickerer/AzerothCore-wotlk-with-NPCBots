@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -20,10 +20,27 @@
 #include "ScriptedCreature.h"
 #include "halls_of_stone.h"
 
+ObjectData const summonData[] =
+{
+    { NPC_IRON_SLUDGE, BOSS_SJONNIR },
+    { 0,               0            }
+};
+
+ObjectData const creatureData[] =
+{
+    { NPC_SJONNIR,     BOSS_SJONNIR },
+    { 0,               0            }
+};
+
+BossBoundaryData const boundaries =
+{
+    { BOSS_SJONNIR, new RectangleBoundary(1206.56f, 1341.4185f, 579.9434f, 753.9599f) }
+};
+
 class instance_halls_of_stone : public InstanceMapScript
 {
 public:
-    instance_halls_of_stone() : InstanceMapScript("instance_halls_of_stone", 599) { }
+    instance_halls_of_stone() : InstanceMapScript("instance_halls_of_stone", MAP_HALLS_OF_STONE) { }
 
     InstanceScript* GetInstanceScript(InstanceMap* pMap) const override
     {
@@ -45,7 +62,6 @@ public:
         ObjectGuid goSjonnirDoorGUID;
         ObjectGuid goLeftPipeGUID;
         ObjectGuid goRightPipeGUID;
-        ObjectGuid goTribunalDoorGUID;
 
         ObjectGuid SjonnirGUID;
         ObjectGuid BrannGUID;
@@ -58,6 +74,10 @@ public:
         void Initialize() override
         {
             SetHeaders(DataHeader);
+            SetBossNumber(MAX_ENCOUNTER);
+            LoadObjectData(creatureData, nullptr);
+            LoadSummonData(summonData);
+            LoadBossBoundaries(boundaries);
             memset(&Encounter, 0, sizeof(Encounter));
 
             brannAchievement = false;
@@ -96,10 +116,6 @@ public:
                 case GO_TRIBUNAL_CONSOLE:
                     goTribunalConsoleGUID = go->GetGUID();
                     break;
-                case GO_TRIBUNAL_ACCESS_DOOR:
-                    goTribunalDoorGUID = go->GetGUID();
-                    go->SetGoState(GO_STATE_READY);
-                    break;
                 case GO_SKY_FLOOR:
                     goSkyRoomFloorGUID = go->GetGUID();
                     if (Encounter[BOSS_TRIBUNAL_OF_AGES] == DONE)
@@ -126,13 +142,12 @@ public:
         {
             switch (creature->GetEntry())
             {
-                case NPC_SJONNIR:
-                    SjonnirGUID = creature->GetGUID();
-                    break;
                 case NPC_BRANN:
                     BrannGUID = creature->GetGUID();
                     break;
             }
+
+            InstanceScript::OnCreatureCreate(creature);
         }
 
         ObjectGuid GetGuidData(uint32 id) const override
@@ -141,8 +156,6 @@ public:
             {
                 case GO_TRIBUNAL_CONSOLE:
                     return goTribunalConsoleGUID;
-                case GO_TRIBUNAL_ACCESS_DOOR:
-                    return goTribunalDoorGUID;
                 case GO_SJONNIR_CONSOLE:
                     return goSjonnirConsoleGUID;
                 case GO_SJONNIR_DOOR:
@@ -157,6 +170,8 @@ public:
                     return goMarnakGUID;
                 case GO_ABEDNEUM:
                     return goAbedneumGUID;
+                case GO_SKY_FLOOR:
+                    return goSkyRoomFloorGUID;
 
                 case NPC_SJONNIR:
                     return SjonnirGUID;
@@ -206,27 +221,91 @@ public:
                 isKrystalusDead = type == BOSS_KRYSTALLUS || isKrystalusDead;
             }
 
-            if (isMaidenOfGriefDead && isKrystalusDead)
-                if (GameObject* tribunalDoor = instance->GetGameObject(goTribunalDoorGUID))
-                    tribunalDoor->SetGoState(GO_STATE_ACTIVE);
+            if (type == BOSS_TRIBUNAL_OF_AGES && data == SPECIAL)
+            {
+                if (GameObject* pSkyRoomFloor = instance->GetGameObject(goSkyRoomFloorGUID))
+                    pSkyRoomFloor->SetGoState(GO_STATE_READY);
+            }
 
             if (type == BOSS_TRIBUNAL_OF_AGES && data == DONE)
             {
-                if (GameObject* pA = instance->GetGameObject(goAbedneumGUID))
-                    pA->SetGoState(GO_STATE_ACTIVE);
-                if (GameObject* pF = instance->GetGameObject(goSkyRoomFloorGUID))
-                    pF->SetGoState(GO_STATE_ACTIVE);
+                GameObject* pAbedneum = instance->GetGameObject(goAbedneumGUID);
+                GameObject* pKaddrak = instance->GetGameObject(goKaddrakGUID);
+                GameObject* pMarnak = instance->GetGameObject(goMarnakGUID);
+
+                GameObject* pSkyRoomFloor = instance->GetGameObject(goSkyRoomFloorGUID);
+                bool skyRoomDown = false;
+
+                if (pAbedneum && pKaddrak && pMarnak && pSkyRoomFloor)
+                {
+                    if (pAbedneum->GetGoState() != GO_STATE_ACTIVE)
+                    {
+                        if (pKaddrak->GetGoState() != GO_STATE_ACTIVE && pMarnak->GetGoState() != GO_STATE_ACTIVE)
+                        {
+                            //Abedneum first talk
+                            pAbedneum->SetGoState(GO_STATE_ACTIVE);
+                        }
+                        else if (pMarnak->GetGoState() == GO_STATE_ACTIVE)
+                        {
+                            //Abedneum second talk
+                            pAbedneum->SetGoState(GO_STATE_ACTIVE);
+                            pMarnak->SetGoState(GO_STATE_READY);
+                            pSkyRoomFloor->SetGoState(GO_STATE_READY);
+                            skyRoomDown = true;
+                        }
+                        else
+                        {
+                            //Marnak talk
+                            if (pKaddrak->GetGoState() == GO_STATE_ACTIVE)
+                            {
+                                pMarnak->SetGoState(GO_STATE_ACTIVE);
+                                pKaddrak->SetGoState(GO_STATE_READY);
+                                pSkyRoomFloor->SetGoState(GO_STATE_READY);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        //Kaddrak talk
+                        if (pKaddrak->GetGoState() != GO_STATE_ACTIVE)
+                        {
+                            pAbedneum->SetGoState(GO_STATE_READY);
+                            pKaddrak->SetGoState(GO_STATE_ACTIVE);
+                            pSkyRoomFloor->SetGoState(GO_STATE_READY);
+                        }
+                    }
+
+                    if (!skyRoomDown)
+                        pSkyRoomFloor->SetGoState(GO_STATE_ACTIVE);
+                }
 
                 // Make sjonnir attackable
-                if (Creature* cr = instance->GetCreature(SjonnirGUID))
-                    cr->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+                if (Creature* cSjonnir = instance->GetCreature(SjonnirGUID))
+                    cSjonnir->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
             }
+
             if (type == BOSS_TRIBUNAL_OF_AGES && data == NOT_STARTED)
             {
-                if (GameObject* pA = instance->GetGameObject(goAbedneumGUID))
-                    pA->SetGoState(GO_STATE_READY);
-                if (GameObject* pF = instance->GetGameObject(goSkyRoomFloorGUID))
-                    pF->SetGoState(GO_STATE_READY);
+                if (GameObject* pAbedneum = instance->GetGameObject(goAbedneumGUID))
+                    pAbedneum->SetGoState(GO_STATE_READY);
+                if (GameObject* pKaddrak = instance->GetGameObject(goKaddrakGUID))
+                    pKaddrak->SetGoState(GO_STATE_READY);
+                if (GameObject* pMarnak = instance->GetGameObject(goMarnakGUID))
+                    pMarnak->SetGoState(GO_STATE_READY);
+                if (GameObject* pSkyRoomFloor = instance->GetGameObject(goSkyRoomFloorGUID))
+                    pSkyRoomFloor->SetGoState(GO_STATE_READY);
+            }
+
+            if (type == BOSS_TRIBUNAL_OF_AGES && data == FAIL)
+            {
+                if (GameObject* pAbedneum = instance->GetGameObject(goAbedneumGUID))
+                    pAbedneum->SetGoState(GO_STATE_ACTIVE);
+                if (GameObject* pKaddrak = instance->GetGameObject(goKaddrakGUID))
+                    pKaddrak->SetGoState(GO_STATE_ACTIVE);
+                if (GameObject* pMarnak = instance->GetGameObject(goMarnakGUID))
+                    pMarnak->SetGoState(GO_STATE_ACTIVE);
+                if (GameObject* pSkyRoomFloor = instance->GetGameObject(goSkyRoomFloorGUID))
+                    pSkyRoomFloor->SetGoState(GO_STATE_READY);
             }
 
             if (type == DATA_BRANN_ACHIEVEMENT)

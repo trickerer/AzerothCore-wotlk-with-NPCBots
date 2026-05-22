@@ -26,12 +26,13 @@ include (CheckCXXSourceCompiles)
 
 if (WIN32)
   # On windows the requirements are higher according to the wiki.
-  set(BOOST_REQUIRED_VERSION 1.74)
+  set(BOOST_REQUIRED_VERSION 1.78)
 else()
-  set(BOOST_REQUIRED_VERSION 1.67)
+  set(BOOST_REQUIRED_VERSION 1.74)
 endif()
 
-find_package(Boost ${BOOST_REQUIRED_VERSION} REQUIRED system filesystem program_options iostreams regex)
+# Boost.System is header-only since 1.69; do not require it explicitly.
+find_package(Boost ${BOOST_REQUIRED_VERSION} REQUIRED COMPONENTS filesystem program_options iostreams regex)
 
 if(NOT Boost_FOUND)
   if(NOT DEFINED ENV{Boost_ROOT} AND NOT DEFINED Boost_DIR AND NOT DEFINED BOOST_ROOT AND NOT DEFINED BOOSTROOT)

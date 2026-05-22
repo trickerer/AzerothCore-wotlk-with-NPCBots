@@ -1,30 +1,24 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* ScriptData
-Name: wp_commandscript
-%Complete: 100
-Comment: All wp related commands
-Category: commandscripts
-EndScriptData */
-
 #include "Chat.h"
 #include "CommandScript.h"
 #include "Player.h"
+#include "RBAC.h"
 #include "WaypointMgr.h"
 
 #if AC_COMPILER == AC_COMPILER_GNU
@@ -42,13 +36,13 @@ public:
     {
         static ChatCommandTable wpCommandTable =
         {
-            { "add",        HandleWpAddCommand,      SEC_ADMINISTRATOR, Console::No },
-            { "event",      HandleWpEventCommand,    SEC_ADMINISTRATOR, Console::No },
-            { "load",       HandleWpLoadCommand,     SEC_ADMINISTRATOR, Console::No },
-            { "modify",     HandleWpModifyCommand,   SEC_ADMINISTRATOR, Console::No },
-            { "unload",     HandleWpUnLoadCommand,   SEC_ADMINISTRATOR, Console::No },
-            { "reload",     HandleWpReloadCommand,   SEC_ADMINISTRATOR, Console::No },
-            { "show",       HandleWpShowCommand,     SEC_ADMINISTRATOR, Console::No }
+            { "add",        HandleWpAddCommand,      rbac::RBAC_PERM_COMMAND_WP_ADD,    Console::No },
+            { "event",      HandleWpEventCommand,    rbac::RBAC_PERM_COMMAND_WP_EVENT,  Console::No },
+            { "load",       HandleWpLoadCommand,     rbac::RBAC_PERM_COMMAND_WP_LOAD,   Console::No },
+            { "modify",     HandleWpModifyCommand,   rbac::RBAC_PERM_COMMAND_WP_MODIFY, Console::No },
+            { "unload",     HandleWpUnLoadCommand,   rbac::RBAC_PERM_COMMAND_WP_UNLOAD, Console::No },
+            { "reload",     HandleWpReloadCommand,   rbac::RBAC_PERM_COMMAND_WP_RELOAD, Console::No },
+            { "show",       HandleWpShowCommand,     rbac::RBAC_PERM_COMMAND_WP_SHOW,   Console::No }
         };
         static ChatCommandTable commandTable =
         {
@@ -807,8 +801,8 @@ public:
 
             if (!result)
             {
-                handler->SendSysMessage(LANG_WAYPOINT_NOTFOUNDDBPROBLEM);
-                return true;
+                handler->SendErrorMessage(LANG_WAYPOINT_NOTFOUNDDBPROBLEM, target->GetSpawnId());
+                return false;
             }
 
             handler->SendSysMessage("|cff00ffffDEBUG: wp show info:|r");
@@ -912,15 +906,16 @@ public:
                     return false;
                 }
 
+                wpCreature->SaveToDB(map->GetId(), (1 << map->GetSpawnMode()), chr->GetPhaseMaskForSpawn());
+
                 // Set "wpguid" column to the visual waypoint
                 WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_UPD_WAYPOINT_DATA_WPGUID);
-                stmt->SetData(0, int32(wpCreature->GetSpawnId()));
+                stmt->SetData(0, wpCreature->GetSpawnId());
                 stmt->SetData(1, pathid);
                 stmt->SetData(2, point);
 
                 WorldDatabase.Execute(stmt);
 
-                wpCreature->SaveToDB(map->GetId(), (1 << map->GetSpawnMode()), chr->GetPhaseMaskForSpawn());
                 // To call _LoadGoods(); _LoadQuests(); CreateTrainerSpells();
                 if (!wpCreature->LoadCreatureFromDB(wpCreature->GetSpawnId(), map, true, true))
                 {

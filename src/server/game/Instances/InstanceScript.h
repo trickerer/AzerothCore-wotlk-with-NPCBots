@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -23,6 +23,7 @@
 #include "TaskScheduler.h"
 #include "World.h"
 #include "ZoneScript.h"
+#include "WorldStatePackets.h"
 #include <set>
 
 #define OUT_SAVE_INST_DATA             LOG_DEBUG("scripts.ai", "Saving Instance Data for Instance {} (Map {}, Instance Id {})", instance->GetMapName(), instance->GetId(), instance->GetInstanceId())
@@ -141,7 +142,7 @@ typedef std::map<ObjectGuid::LowType /*spawnId*/, uint8 /*state*/> ObjectStateMa
 class InstanceScript : public ZoneScript
 {
 public:
-    explicit InstanceScript(Map* map) : instance(map), completedEncounters(0) {}
+    explicit InstanceScript(Map* map) : instance(map), completedEncounters(0), _teamIdInInstance(TEAM_NEUTRAL) {}
 
     ~InstanceScript() override {}
 
@@ -182,7 +183,10 @@ public:
     GameObject* GetGameObject(uint32 type);
 
     //Called when a player successfully enters the instance.
-    virtual void OnPlayerEnter(Player* /*player*/) {}
+    virtual void OnPlayerEnter(Player* /*player*/);
+
+    //Called when a player successfully leaves the instance.
+    virtual void OnPlayerLeave(Player* /*player*/);
 
     virtual void OnPlayerAreaUpdate(Player* /*player*/, uint32 /*oldArea*/, uint32 /*newArea*/) {}
 
@@ -196,16 +200,29 @@ public:
     void DoCastSpellOnNPCBot(Creature* bot, uint32 spell);
     //end npcbot
 
-    //Handle open / close objects
-    //use HandleGameObject(ObjectGuid::Empty, boolen, GO); in OnObjectCreate in instance scripts
-    //use HandleGameObject(GUID, boolen, nullptr); in any other script
+    /**
+     * @brief Open or close a GameObject by GUID.
+     * @param guid The GUID of the GameObject. Pass ObjectGuid::Empty when providing the go pointer directly.
+     * @param open true to open (GO_STATE_ACTIVE), false to close (GO_STATE_READY).
+     * @param go Optional pointer to the GameObject. If nullptr, the object is looked up by GUID.
+     */
     void HandleGameObject(ObjectGuid guid, bool open, GameObject* go = nullptr);
+
+    /**
+     * @brief Open or close a GameObject registered via LoadObjectData.
+     * @param type The ObjectData type constant (e.g. GO_FRONT_DOOR) used in the gameObjectData array.
+     * @param open true to open (GO_STATE_ACTIVE), false to close (GO_STATE_READY).
+     */
+    void HandleGameObject(uint32 type, bool open);
 
     //change active state of doors or buttons
     void DoUseDoorOrButton(ObjectGuid guid, uint32 withRestoreTime = 0, bool useAlternativeState = false);
 
     //Respawns a GO having negative spawntimesecs in gameobject-table
     void DoRespawnGameObject(ObjectGuid guid, uint32 timeToDespawn = MINUTE);
+
+    // Respawns a GO by instance storage index
+    void DoRespawnGameObject(uint32 type);
 
     // Respawns a creature.
     void DoRespawnCreature(ObjectGuid guid, bool force = false);
@@ -254,6 +271,8 @@ public:
     // Checks boss requirements (one boss required to kill other)
     virtual bool CheckRequiredBosses(uint32 /*bossId*/, Player const* /*player*/ = nullptr) const { return true; }
 
+    bool _SkipCheckRequiredBosses(Player const* player = nullptr) const;
+
     void SetCompletedEncountersMask(uint32 newMask, bool save);
 
     // Returns completed encounters mask for packets
@@ -261,7 +280,7 @@ public:
 
     void SendEncounterUnit(uint32 type, Unit* unit = nullptr, uint8 param1 = 0, uint8 param2 = 0);
 
-    virtual void FillInitialWorldStates(WorldPacket& /*data*/) {}
+    virtual void FillInitialWorldStates(WorldPackets::WorldState::InitWorldStates& /*packet*/) { }
 
     uint32 GetEncounterCount() const { return bosses.size(); }
 
@@ -286,6 +305,10 @@ public:
     [[nodiscard]] bool AllBossesDone() const;
     [[nodiscard]] bool AllBossesDone(std::initializer_list<uint32> bossIds) const;
 
+    TeamId GetTeamIdInInstance() const { return _teamIdInInstance; }
+    void SetTeamIdInInstance(TeamId teamId) { _teamIdInInstance = teamId; }
+    bool IsTwoFactionInstance() const;
+
     TaskScheduler scheduler;
 protected:
     void SetHeaders(std::string const& dataHeaders);
@@ -295,6 +318,11 @@ protected:
     void LoadDoorData(DoorData const* data);
     void LoadMinionData(MinionData const* data);
     void LoadObjectData(ObjectData const* creatureData, ObjectData const* gameObjectData);
+    // Allows setting another creature as summoner for a creature.
+    // This is used to handle summons that are not directly controlled by the summoner.
+    // Summoner creature must be loaded in the instance data (LoadObjectData).
+    void LoadSummonData(ObjectData const* data);
+    void SetSummoner(Creature* creature);
 
     void AddObject(Creature* obj, bool add = true);
     void RemoveObject(Creature* obj);
@@ -331,9 +359,11 @@ private:
     MinionInfoMap minions;
     ObjectInfoMap _creatureInfo;
     ObjectInfoMap _gameObjectInfo;
+    ObjectInfoMap _summonInfo;
     ObjectGuidMap _objectGuids;
     ObjectStateMap _objectStateMap;
     uint32 completedEncounters; // completed encounter mask, bit indexes are DungeonEncounter.dbc boss numbers, used for packets
+    TeamId _teamIdInInstance;
     std::unordered_set<uint32> _activatedAreaTriggers;
 };
 

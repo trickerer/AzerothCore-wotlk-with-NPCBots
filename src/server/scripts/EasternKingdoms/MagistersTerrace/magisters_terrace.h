@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -32,7 +32,11 @@ enum MTData
     MAX_ENCOUNTER               = 4,
 
     DATA_KALECGOS               = 5,
-    DATA_ESCAPE_ORB             = 6
+    DATA_ESCAPE_ORB             = 6,
+
+    // Persistent data
+    DATA_KAEL_INTRO             = 0,
+    MAX_PERSISTENT_DATA         = 1
 };
 
 enum MTCreatures
@@ -40,10 +44,9 @@ enum MTCreatures
     NPC_DELRISSA                = 24560,
     NPC_FEL_CRYSTAL             = 24722,
     NPC_KAEL_THAS               = 24664,
-    NPC_PHOENIX                 = 21362,
-    NPC_PHOENIX_EGG             = 21364,
-    NPC_KALECGOS                = 24844,
-    NPC_HUMAN_KALECGOS          = 24848
+    NPC_PHOENIX                 = 24674,
+    NPC_PHOENIX_EGG             = 24675,
+    NPC_KALECGOS                = 24844
 };
 
 enum MTGameObjects
@@ -61,14 +64,14 @@ enum InstanceEventIds
     EVENT_SPAWN_KALECGOS = 16547
 };
 
-enum InstanceText
-{
-    SAY_KALECGOS_SPAWN = 0
-};
-
 enum MovementData
 {
     PATH_KALECGOS_FLIGHT = 248440
+};
+
+enum CreatureTexts
+{
+    SAY_KALECGOS_SPAWN   = 0
 };
 
 template <class AI, class T>

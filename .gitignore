@@ -29,6 +29,9 @@
 
 !.gitkeep
 
+# default build directory if not specified by CMAKE configuration
+/out/*
+
 #
 #Generic
 #
@@ -51,6 +54,13 @@ CMakeLists.txt.user
 *.LOCAL.*
 
 #
+# Claude
+#
+.claude/worktrees
+.claude/settings.local.json
+.claude/plans/**
+
+#
 # IDE & other software
 #
 /.settings/
@@ -63,6 +73,13 @@ nbproject/
 .idea
 cmake-build-*/*
 coverage-report/
+.vs
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 
 #
 # Eclipse
@@ -80,6 +97,10 @@ local.properties
 .project
 .cproject
 
+# vcpkg integration
+/vcpkg/
+/vcpkg-ports/
+
 
 # ==================
 #
@@ -94,6 +115,7 @@ local.properties
 # ==================
 
 #NPCBots
+!/data/sql/custom/db_auth/
 !/data/sql/custom/db_characters/
 !/data/sql/custom/db_world/
 

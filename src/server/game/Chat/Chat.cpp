@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -24,12 +24,14 @@
 #include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "Player.h"
+#include "RBAC.h"
 #include "Realm.h"
 #include "ScriptMgr.h"
 #include "Tokenize.h"
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "WorldSessionMgr.h"
 #include <boost/algorithm/string/replace.hpp>
 
 Player* ChatHandler::GetPlayer() const
@@ -37,7 +39,7 @@ Player* ChatHandler::GetPlayer() const
     return m_session ? m_session->GetPlayer() : nullptr;
 }
 
-char const* ChatHandler::GetAcoreString(uint32 entry) const
+std::string ChatHandler::GetAcoreString(uint32 entry) const
 {
     return m_session->GetAcoreString(entry);
 }
@@ -51,6 +53,13 @@ bool ChatHandler::IsAvailable(uint32 securityLevel) const
 {
     // check security level only for simple  command (without child commands)
     return IsConsole() ? true : m_session->GetSecurity() >= AccountTypes(securityLevel);
+}
+
+bool ChatHandler::HasPermission(uint32 permissionId) const
+{
+    if (IsConsole())
+        return true;
+    return m_session && m_session->HasPermission(permissionId);
 }
 
 bool ChatHandler::HasLowerSecurity(Player* target, ObjectGuid guid, bool strong)
@@ -81,7 +90,7 @@ bool ChatHandler::HasLowerSecurityAccount(WorldSession* target, uint32 target_ac
         return false;
 
     // ignore only for non-players for non strong checks (when allow apply command at least to same sec level)
-    if (!AccountMgr::IsPlayerAccount(m_session->GetSecurity()) && !strong && !sWorld->getBoolConfig(CONFIG_GM_LOWER_SECURITY))
+    if (m_session->HasPermission(rbac::RBAC_PERM_CAN_IGNORE_LOWER_SECURITY_CHECK) && !strong && sWorld->getBoolConfig(CONFIG_GM_LOWER_SECURITY))
         return false;
 
     if (target)
@@ -116,7 +125,7 @@ void ChatHandler::SendGMText(std::string_view str)
 {
     std::vector<std::string_view> lines = Acore::Tokenize(str, '\n', true);
     // Session should have permissions to receive global gm messages
-    if (AccountMgr::IsPlayerAccount(m_session->GetSecurity()))
+    if (!m_session->HasPermission(rbac::RBAC_PERM_RECEIVE_GLOBAL_GM_TEXTMESSAGE))
         return;
 
     for (std::string_view line : lines)
@@ -188,7 +197,7 @@ void ChatHandler::SendGlobalSysMessage(const char* str)
     for (std::string_view line : Acore::Tokenize(str, '\n', true))
     {
         BuildChatPacket(data, CHAT_MSG_SYSTEM, LANG_UNIVERSAL, nullptr, nullptr, line);
-        sWorld->SendGlobalMessage(&data);
+        sWorldSessionMgr->SendGlobalMessage(&data);
     }
 }
 
@@ -198,7 +207,7 @@ void ChatHandler::SendGlobalGMSysMessage(const char* str)
     for (std::string_view line : Acore::Tokenize(str, '\n', true))
     {
         BuildChatPacket(data, CHAT_MSG_SYSTEM, LANG_UNIVERSAL, nullptr, nullptr, line);
-        sWorld->SendGlobalGMMessage(&data);
+        sWorldSessionMgr->SendGlobalGMMessage(&data);
     }
 }
 
@@ -230,7 +239,7 @@ bool ChatHandler::_ParseCommands(std::string_view text)
         return true;
 
     // Pretend commands don't exist for regular players
-    if (m_session && AccountMgr::IsPlayerAccount(m_session->GetSecurity()) && !sWorld->getBoolConfig(CONFIG_ALLOW_PLAYER_COMMANDS))
+    if (m_session && !m_session->HasPermission(rbac::RBAC_PERM_COMMANDS_NOTIFY_COMMAND_NOT_FOUND_ERROR) && !sWorld->getBoolConfig(CONFIG_ALLOW_PLAYER_COMMANDS))
         return false;
 
     // Send error message for GMs
@@ -357,7 +366,7 @@ std::size_t ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg chatType, La
         if (Player const* playerSender = sender->ToPlayer())
         {
             chatTag = playerSender->GetChatTag();
-            gmMessage = playerSender->IsGameMaster();
+            gmMessage = playerSender->GetSession()->HasPermission(rbac::RBAC_PERM_COMMAND_GM_CHAT);
         }
     }
 
@@ -442,8 +451,8 @@ bool ChatHandler::HasSession() const
 
 void ChatHandler::DoForAllValidSessions(std::function<void(Player*)> exec)
 {
-    SessionMap::const_iterator itr;
-    for (itr = sWorld->GetAllSessions().begin(); itr != sWorld->GetAllSessions().end(); ++itr)
+    WorldSessionMgr::SessionMap const& sessionMap = sWorldSessionMgr->GetAllSessions();
+    for (WorldSessionMgr::SessionMap::const_iterator itr = sessionMap.begin(); itr != sessionMap.end(); ++itr)
         if (Player* player = itr->second->GetPlayer())
             if (player->IsInWorld())
                 exec(player);
@@ -570,7 +579,7 @@ GameObject* ChatHandler::GetNearbyGameObject() const
     GameObject* obj = nullptr;
     Acore::NearestGameObjectCheck check(*pl);
     Acore::GameObjectLastSearcher<Acore::NearestGameObjectCheck> searcher(pl, obj, check);
-    Cell::VisitGridObjects(pl, searcher, SIZE_OF_GRIDS);
+    Cell::VisitObjects(pl, searcher, SIZE_OF_GRIDS);
     return obj;
 }
 
@@ -881,7 +890,7 @@ std::string ChatHandler::GetNameLink(Player* chr) const
     return playerLink(chr->GetName());
 }
 
-char const* CliHandler::GetAcoreString(uint32 entry) const
+std::string CliHandler::GetAcoreString(uint32 entry) const
 {
     return sObjectMgr->GetAcoreStringForDBCLocale(entry);
 }

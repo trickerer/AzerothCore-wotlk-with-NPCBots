@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -23,6 +23,23 @@
 #define DataHeader "HOS"
 
 #define HallsOfStoneScriptName "instance_halls_of_stone"
+
+enum Texts
+{
+    SAY_BRANN_KILL                = 0,
+    SAY_BRANN_LOW_HEALTH          = 1,
+    SAY_BRANN_DEATH               = 2,
+    SAY_BRANN_PLAYER_DEATH        = 3,
+    SAY_BRANN_ESCORT_START        = 4,
+    SAY_BRANN_FRONT_OF_SJONNIR    = 5,
+    SAY_BRANN_SPAWN_TROGG         = 6,
+    SAY_BRANN_SPAWN_OOZE          = 7,
+    SAY_BRANN_SPAWN_EARTHEN       = 8,
+    SAY_BRANN_EVENT_INTRO_1       = 9,
+    SAY_BRANN_VICTORY_SJONNIR_1   = 30,
+    SAY_BRANN_VICTORY_SJONNIR_2   = 31,
+    SAY_BRANN_ENTRANCE_MEET       = 32,
+};
 
 enum Encounter
 {
@@ -61,6 +78,16 @@ enum npcs
     NPC_ABEDNEUM                = 30899,
     NPC_SJONNIR                 = 27978,
     NPC_BRANN                   = 28070,
+    NPC_IRON_SLUDGE             = 28165,
+
+    ACTION_START_ESCORT_EVENT       = 0,
+    ACTION_START_TRIBUNAL           = 1,
+    ACTION_TRIBUNAL_WIPE_START      = 2,
+    ACTION_GO_TO_SJONNIR            = 3,
+    ACTION_OPEN_DOOR                = 4,
+    ACTION_START_SJONNIR_FIGHT      = 5,
+    ACTION_SJONNIR_DEAD             = 6,
+    ACTION_SJONNIR_WIPE_START       = 7,
 };
 
 template <class AI, class T>

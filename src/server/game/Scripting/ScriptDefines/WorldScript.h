@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -18,6 +18,7 @@
 #ifndef SCRIPT_OBJECT_WORLD_SCRIPT_H_
 #define SCRIPT_OBJECT_WORLD_SCRIPT_H_
 
+#include "Common.h"
 #include "ScriptObject.h"
 #include <vector>
 
@@ -58,7 +59,7 @@ public:
     virtual void OnBeforeConfigLoad(bool /*reload*/) { }
 
     // Called before the message of the day is changed.
-    virtual void OnMotdChange(std::string& /*newMotd*/) { }
+    virtual void OnMotdChange(std::string& /*newMotd*/, LocaleConstant& /*locale*/) { }
 
     // Called when a world shutdown is initiated.
     virtual void OnShutdownInitiate(ShutdownExitCode /*code*/, ShutdownMask /*mask*/) { }

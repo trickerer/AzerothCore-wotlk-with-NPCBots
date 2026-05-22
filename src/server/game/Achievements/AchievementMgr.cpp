@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -28,6 +28,7 @@
 #include "DBCEnums.h"
 #include "DatabaseEnv.h"
 #include "DisableMgr.h"
+#include "Duration.h"
 #include "GameEventMgr.h"
 #include "GameTime.h"
 #include "GridNotifiersImpl.h"
@@ -39,11 +40,14 @@
 #include "MapMgr.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "RBAC.h"
+#include "RaceMgr.h"
 #include "ReputationMgr.h"
 #include "ScriptMgr.h"
 #include "SpellMgr.h"
 #include "World.h"
 #include "WorldPacket.h"
+#include "WorldSessionMgr.h"
 
 bool AchievementCriteriaData::IsValid(AchievementCriteriaEntry const* criteria)
 {
@@ -114,7 +118,7 @@ bool AchievementCriteriaData::IsValid(AchievementCriteriaEntry const* criteria)
                                  criteria->ID, criteria->requiredType, dataType, classRace.class_id);
                 return false;
             }
-            if (classRace.race_id && ((1 << (classRace.race_id - 1)) & RACEMASK_ALL_PLAYABLE) == 0)
+            if (classRace.race_id && ((1 << (classRace.race_id - 1)) & sRaceMgr->GetPlayableRaceMask()) == 0)
             {
                 LOG_ERROR("sql.sql", "Table `achievement_criteria_data` (Entry: {} Type: {}) for data type ACHIEVEMENT_CRITERIA_DATA_TYPE_T_PLAYER_CLASS_RACE ({}) has non-existing race in value2 ({}), ignored.",
                                  criteria->ID, criteria->requiredType, dataType, classRace.race_id);
@@ -274,7 +278,7 @@ bool AchievementCriteriaData::IsValid(AchievementCriteriaEntry const* criteria)
                                  criteria->ID, criteria->requiredType, dataType, classRace.class_id);
                 return false;
             }
-            if (classRace.race_id && ((1 << (classRace.race_id - 1)) & RACEMASK_ALL_PLAYABLE) == 0)
+            if (classRace.race_id && ((1 << (classRace.race_id - 1)) & sRaceMgr->GetPlayableRaceMask()) == 0)
             {
                 LOG_ERROR("sql.sql", "Table `achievement_criteria_data` (Entry: {} Type: {}) for data type ACHIEVEMENT_CRITERIA_DATA_TYPE_S_PLAYER_CLASS_RACE ({}) has non-existing race in value2 ({}), ignored.",
                                  criteria->ID, criteria->requiredType, dataType, classRace.race_id);
@@ -517,6 +521,8 @@ void AchievementMgr::ResetAchievementCriteria(AchievementCriteriaCondition condi
     // disable for gamemasters with GM-mode enabled
     if (_player->IsGameMaster())
         return;
+    if (_player->GetSession()->HasPermission(rbac::RBAC_PERM_CANNOT_EARN_ACHIEVEMENTS))
+        return;
 
     LOG_DEBUG("achievement", "AchievementMgr::ResetAchievementCriteria({}, {}, {})", condition, value, evenIfCriteriaComplete);
 
@@ -580,7 +586,7 @@ void AchievementMgr::SaveToDB(CharacterDatabaseTransaction trans)
 
             iter->second.changed = false;
 
-            sScriptMgr->OnAchievementSave(trans, GetPlayer(), iter->first, iter->second);
+            sScriptMgr->OnPlayerAchievementSave(trans, GetPlayer(), iter->first, iter->second);
         }
     }
 
@@ -609,7 +615,7 @@ void AchievementMgr::SaveToDB(CharacterDatabaseTransaction trans)
 
             iter->second.changed = false;
 
-            sScriptMgr->OnCriteriaSave(trans, GetPlayer(), iter->first, iter->second);
+            sScriptMgr->OnPlayerCriteriaSave(trans, GetPlayer(), iter->first, iter->second);
         }
     }
 }
@@ -728,7 +734,7 @@ void AchievementMgr::SendAchievementEarned(AchievementEntry const* achievement) 
             data << GetPlayer()->GetGUID();
             data << uint32(achievement->ID);
             data << uint32(0);                                  // display name as plain string in chat (always 0 for guild)
-            sWorld->SendGlobalMessage(&data);
+            sWorldSessionMgr->SendGlobalMessage(&data);
         }
         else
         {
@@ -741,25 +747,19 @@ void AchievementMgr::SendAchievementEarned(AchievementEntry const* achievement) 
             data << uint32(achievement->ID);
             std::size_t linkTypePos = data.wpos();
             data << uint32(1);                                  // display name as clickable link in chat
-            sWorld->SendGlobalMessage(&data, nullptr, teamId);
+            sWorldSessionMgr->SendGlobalMessage(&data, nullptr, teamId);
 
             data.put<uint32>(linkTypePos, 0);                   // display name as plain string in chat
-            sWorld->SendGlobalMessage(&data, nullptr, teamId == TEAM_ALLIANCE ? TEAM_HORDE : TEAM_ALLIANCE);
+            sWorldSessionMgr->SendGlobalMessage(&data, nullptr, teamId == TEAM_ALLIANCE ? TEAM_HORDE : TEAM_ALLIANCE);
         }
     }
     // if player is in world he can tell his friends about new achievement
     else if (GetPlayer()->IsInWorld())
     {
-        CellCoord p = Acore::ComputeCellCoord(GetPlayer()->GetPositionX(), GetPlayer()->GetPositionY());
-
-        Cell cell(p);
-        cell.SetNoCreate();
-
         Acore::BroadcastTextBuilder _builder(GetPlayer(), CHAT_MSG_ACHIEVEMENT, BROADCAST_TEXT_ACHIEVEMENT_EARNED, GetPlayer()->getGender(), GetPlayer(), achievement->ID);
         Acore::LocalizedPacketDo<Acore::BroadcastTextBuilder> _localizer(_builder);
         Acore::PlayerDistWorker<Acore::LocalizedPacketDo<Acore::BroadcastTextBuilder>> _worker(GetPlayer(), sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_SAY), _localizer);
-        TypeContainerVisitor<Acore::PlayerDistWorker<Acore::LocalizedPacketDo<Acore::BroadcastTextBuilder> >, WorldTypeMapContainer > message(_worker);
-        Cell::VisitWorldObjects(GetPlayer(), _worker, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_SAY));
+        Cell::VisitObjects(GetPlayer(), _worker, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_SAY));
     }
 
     WorldPacket data(SMSG_ACHIEVEMENT_EARNED, 8 + 4 + 8);
@@ -823,6 +823,8 @@ void AchievementMgr::UpdateAchievementCriteria(AchievementCriteriaTypes type, ui
 {
     // disable for gamemasters with GM-mode enabled
     if (_player->IsGameMaster())
+        return;
+    if (_player->GetSession()->HasPermission(rbac::RBAC_PERM_CANNOT_EARN_ACHIEVEMENTS))
         return;
 
     if (type >= ACHIEVEMENT_CRITERIA_TYPE_TOTAL)
@@ -1831,6 +1833,15 @@ bool AchievementMgr::IsCompletedCriteria(AchievementCriteriaEntry const* achieve
         // someone on this realm has already completed that achievement
         if (sAchievementMgr->IsRealmCompleted(achievement))
             return false;
+
+        // A character may only have 1 race-specific 'Realm First!' achievement
+        // prevent clever use of the race/faction change service to obtain multiple 'Realm First!' achievements
+        constexpr std::array<uint32, 9> raceSpecificRealmFirstAchievements { 1405, 1406, 1407, 1408, 1409, 1410, 1411, 1412, 1413 };
+        bool isRaceSpecific = std::ranges::find(raceSpecificRealmFirstAchievements, achievement->ID) != std::ranges::end(raceSpecificRealmFirstAchievements);
+        if (isRaceSpecific)
+            for (uint32 raceAchievementId : raceSpecificRealmFirstAchievements)
+                if (raceAchievementId != achievement->ID && HasAchieved(raceAchievementId))
+                    return false;
     }
 
     // pussywizard: progress will be deleted after getting the achievement (optimization)
@@ -2103,7 +2114,7 @@ void AchievementMgr::SetCriteriaProgress(AchievementCriteriaEntry const* entry, 
     if (entry->timeLimit && timedIter == _timedAchievements.end())
         return;
 
-    if (!sScriptMgr->OnBeforeCriteriaProgress(GetPlayer(), entry))
+    if (!sScriptMgr->OnPlayerBeforeCriteriaProgress(GetPlayer(), entry))
     {
         return;
     }
@@ -2169,7 +2180,7 @@ void AchievementMgr::SetCriteriaProgress(AchievementCriteriaEntry const* entry, 
 
     SendCriteriaUpdate(entry, progress, timeElapsed, true);
 
-    sScriptMgr->OnCriteriaProgress(GetPlayer(), entry);
+    sScriptMgr->OnPlayerCriteriaProgress(GetPlayer(), entry);
 }
 
 void AchievementMgr::RemoveCriteriaProgress(const AchievementCriteriaEntry* entry)
@@ -2276,8 +2287,10 @@ void AchievementMgr::CompletedAchievement(AchievementEntry const* achievement)
         ChatHandler(_player->GetSession()).PSendSysMessage("Not available in GM mode");
         return;
     }
+    if (_player->GetSession()->HasPermission(rbac::RBAC_PERM_CANNOT_EARN_ACHIEVEMENTS))
+        return;
 
-    if (!sScriptMgr->OnBeforeAchievementComplete(GetPlayer(), achievement))
+    if (!sScriptMgr->OnPlayerBeforeAchievementComplete(GetPlayer(), achievement))
     {
         return;
     }
@@ -2292,7 +2305,7 @@ void AchievementMgr::CompletedAchievement(AchievementEntry const* achievement)
     ca.date = GameTime::GetGameTime().count();
     ca.changed = true;
 
-    sScriptMgr->OnAchievementComplete(GetPlayer(), achievement);
+    sScriptMgr->OnPlayerAchievementComplete(GetPlayer(), achievement);
 
     // pussywizard: set all progress counters to 0, so progress will be deleted from db during save
     {
@@ -2317,7 +2330,7 @@ void AchievementMgr::CompletedAchievement(AchievementEntry const* achievement)
                     }
     }
 
-    if (achievement->flags & (ACHIEVEMENT_FLAG_REALM_FIRST_REACH | ACHIEVEMENT_FLAG_REALM_FIRST_KILL) && AccountMgr::IsPlayerAccount(_player->GetSession()->GetSecurity()))
+    if (achievement->flags & (ACHIEVEMENT_FLAG_REALM_FIRST_REACH | ACHIEVEMENT_FLAG_REALM_FIRST_KILL) && !_player->GetSession()->HasPermission(rbac::RBAC_PERM_CANNOT_EARN_REALM_FIRST_ACHIEVEMENTS))
         sAchievementMgr->SetRealmCompleted(achievement);
 
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_COMPLETE_ACHIEVEMENT, achievement->ID);
@@ -2383,7 +2396,7 @@ void AchievementMgr::SendAllAchievementData() const
 {
     WorldPacket data(SMSG_ALL_ACHIEVEMENT_DATA, _completedAchievements.size() * 8 + 4 + _criteriaProgress.size() * 38 + 4);
     BuildAllDataPacket(&data);
-    GetPlayer()->GetSession()->SendPacket(&data);
+    GetPlayer()->SendDirectMessage(&data);
 }
 
 void AchievementMgr::SendRespondInspectAchievements(Player* player) const
@@ -2391,7 +2404,7 @@ void AchievementMgr::SendRespondInspectAchievements(Player* player) const
     WorldPacket data(SMSG_RESPOND_INSPECT_ACHIEVEMENTS, 9 + _completedAchievements.size() * 8 + 4 + _criteriaProgress.size() * 38 + 4);
     data << GetPlayer()->GetPackGUID();
     BuildAllDataPacket(&data);
-    player->GetSession()->SendPacket(&data);
+    player->SendDirectMessage(&data);
 }
 
 /**
@@ -2438,7 +2451,7 @@ bool AchievementMgr::HasAchieved(uint32 achievementId) const
 
 bool AchievementMgr::CanUpdateCriteria(AchievementCriteriaEntry const* criteria, AchievementEntry const* achievement)
 {
-    if (DisableMgr::IsDisabledFor(DISABLE_TYPE_ACHIEVEMENT_CRITERIA, criteria->ID, nullptr))
+    if (sDisableMgr->IsDisabledFor(DISABLE_TYPE_ACHIEVEMENT_CRITERIA, criteria->ID, nullptr))
         return false;
 
     if (achievement->mapID != -1 && GetPlayer()->GetMapId() != uint32(achievement->mapID))
@@ -2587,11 +2600,18 @@ bool AchievementGlobalMgr::IsRealmCompleted(AchievementEntry const* achievement)
     if (itr->second == SystemTimePoint::max())
         return true;
 
-    // Allow completing the realm first kill for entire minute after first person did it
+    // Allow completing the realm first kill for configurable time window after first person did it
     // it may allow more than one group to achieve it (highly unlikely)
     // but apparently this is how blizz handles it as well
     if (achievement->flags & ACHIEVEMENT_FLAG_REALM_FIRST_KILL)
-        return (GameTime::GetSystemTime() - itr->second) > 1min;
+    {
+        Seconds windowSeconds = Seconds(sWorld->getIntConfig(CONFIG_ACHIEVEMENT_REALM_FIRST_KILL_WINDOW));
+
+        if (windowSeconds == 0s)
+            return true;
+
+        return (GameTime::GetSystemTime() - itr->second) > windowSeconds;
+    }
 
     sScriptMgr->SetRealmCompleted(achievement);
 
@@ -2917,7 +2937,7 @@ void AchievementGlobalMgr::LoadAchievementCriteriaData()
                 continue;
         }
 
-        if (!GetCriteriaDataSet(criteria) && !DisableMgr::IsDisabledFor(DISABLE_TYPE_ACHIEVEMENT_CRITERIA, entryId, nullptr))
+        if (!GetCriteriaDataSet(criteria) && !sDisableMgr->IsDisabledFor(DISABLE_TYPE_ACHIEVEMENT_CRITERIA, entryId, nullptr))
             LOG_ERROR("sql.sql", "Table `achievement_criteria_data` does not have expected data for criteria (Entry: {} Type: {}) for achievement {}.", criteria->ID, criteria->requiredType, criteria->referredAchievement);
     }
 

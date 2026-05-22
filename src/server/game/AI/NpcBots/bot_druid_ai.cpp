@@ -1,4 +1,6 @@
 #include "bot_ai.h"
+#include "botdatamgr.h"
+#include "botlogtraits.h"
 #include "botmgr.h"
 #include "bottext.h"
 #include "bottraits.h"
@@ -21,7 +23,7 @@ TODO: Resolve remaining bugs with wrong power type after death
 TODO2: PvP behaviour revamp (again, it's like 5th time?)
 */
 
-#define MAX_TREANTS 3
+static constexpr uint8 MAX_TREANTS = 3;
 
 enum DruidBaseSpells
 {
@@ -183,30 +185,21 @@ enum DruidSpecial
     INFECTED_WOUNDS_EFFECT              = 58181,//rank 3
     PRIMAL_FURY_EFFECT_ENERGIZE         = 16959,//5 rage
 
-    FORCE_OF_NATURE_1                   = 33831 //not casted
+    FORCE_OF_NATURE_1                   = 33831, //not casted
+    PRE_PULL_HEAL_TIMER                 = 1100
 };
 
-static const uint32 Druid_spells_damage_arr[] =
+static const std::vector<uint32> Druid_spells_damage
 { FAERIE_FIRE_FERAL_1, CLAW_1, FEROCIOUS_BITE_1, MAIM_1, MANGLE_CAT_1, POUNCE_1, RAKE_1, RAVAGE_1, RIP_1, SHRED_1,
 SWIPE_CAT_1, LACERATE_1, MANGLE_BEAR_1, MAUL_1,SWIPE_BEAR_1, ENTANGLING_ROOTS_1, HURRICANE_1, INSECT_SWARM_1,
 WRATH_1, MOONFIRE_1, STARFALL_1, STARFIRE_1, TYPHOON_1, THORNS_1 };
-
-static const uint32 Druid_spells_cc_arr[] =
-{ BASH_1, CYCLONE_1, ENTANGLING_ROOTS_1, FERAL_CHARGE_BEAR_1, HIBERNATE_1, MAIM_1, POUNCE_1, TYPHOON_1 };
-
-static const uint32 Druid_spells_heal_arr[] =
-{ HEALING_TOUCH_1, LIFEBLOOM_1, NOURISH_1, REGROWTH_1, REJUVENATION_1, SWIFTMEND_1, TRANQUILITY_1, WILD_GROWTH_1 };
-
-static const uint32 Druid_spells_support_arr[] =
+static const std::vector<uint32> Druid_spells_cc{ BASH_1, CYCLONE_1, ENTANGLING_ROOTS_1, FERAL_CHARGE_BEAR_1, HIBERNATE_1, MAIM_1, POUNCE_1, TYPHOON_1 };
+static const std::vector<uint32> Druid_spells_heal{ HEALING_TOUCH_1, LIFEBLOOM_1, NOURISH_1, REGROWTH_1, REJUVENATION_1, SWIFTMEND_1, TRANQUILITY_1, WILD_GROWTH_1 };
+static const std::vector<uint32> Druid_spells_support
 { ABOLISH_POISON_1, BARKSKIN_1, BERSERK_1, CHALLENGING_ROAR_1, COWER_1, CURE_POISON_1, DASH_1, ENRAGE_1,
 FAERIE_FIRE_NORMAL_1, FAERIE_FIRE_FERAL_1, FERAL_CHARGE_BEAR_1, FERAL_CHARGE_CAT_1, FRENZIED_REGENERATION_1,
 GROWL_1, INNERVATE_1, MARK_OF_THE_WILD_1, NATURES_GRASP_1, NATURES_SWIFTNESS_1, PROWL_1, REMOVE_CURSE_1,
 REBIRTH_1, REVIVE_1, SAVAGE_ROAR_1, SURVIVAL_INSTINCTS_1, THORNS_1, TIGERS_FURY_1 };
-
-static const std::vector<uint32> Druid_spells_damage(FROM_ARRAY(Druid_spells_damage_arr));
-static const std::vector<uint32> Druid_spells_cc(FROM_ARRAY(Druid_spells_cc_arr));
-static const std::vector<uint32> Druid_spells_heal(FROM_ARRAY(Druid_spells_heal_arr));
-static const std::vector<uint32> Druid_spells_support(FROM_ARRAY(Druid_spells_support_arr));
 
 static float rageLossMult;
 
@@ -324,12 +317,12 @@ public:
 
                 if (me->GetPowerType() != POWER_MANA)
                 {
-                    //TC_LOG_ERROR("entities.player", "druid_bot::removeShapeshiftForm(): still has poweType %u!", uint32(me->GetPowerType()));
+                    //BOT_LOG_ERROR("entities.player", "druid_bot::removeShapeshiftForm(): still has poweType %u!", uint32(me->GetPowerType()));
                     me->SetPowerType(POWER_MANA);
                 }
                 if (me->GetShapeshiftForm() != FORM_NONE)
                 {
-                    //TC_LOG_ERROR("entities.player", "druid_bot::removeShapeshiftForm(): still speshifted into %u!", uint32(me->GetShapeshiftForm()));
+                    //BOT_LOG_ERROR("entities.player", "druid_bot::removeShapeshiftForm(): still speshifted into %u!", uint32(me->GetShapeshiftForm()));
                     me->RemoveAurasByType(SPELL_AURA_MOD_SHAPESHIFT, me->GetGUID(), nullptr, false);
                 }
 
@@ -360,7 +353,7 @@ public:
             if (Rand() > 30 + 50 * (me->GetMap()->IsRaid())) return false;
             if (!gPlayer->GetGroup()) return false;
 
-            bool tranq = IsSpellReady(TRANQUILITY_1, diff, false);
+            bool tranq = IsSpellReady(TRANQUILITY_1, diff, false) && master->GetBotMgr()->IsPartyInCombat(false);
             bool growt = IsSpellReady(WILD_GROWTH_1, diff, false) && !HasRole(BOT_ROLE_DPS);
             if (!tranq && !growt)
                 return false;
@@ -501,32 +494,14 @@ public:
             if (!(_form == DRUID_MOONKIN_FORM || _form == BOT_STANCE_NONE))
                 return;
             //Skip Tranquility, Hurricane
-            if (GC_Timer > diff || Rand() > 35 || IsChanneling() || (HasRole(BOT_ROLE_HEAL) && IsCasting()))
+            if (GC_Timer > diff || Rand() > 35 || (!IAmFree() && IsChanneling()) || (HasRole(BOT_ROLE_HEAL) && IsCasting()))
                 return;
 
-            if (IsSpellReady(CYCLONE_1, diff))
-            {
-                if (Unit* target = FindCastingTarget(20, 0, CYCLONE_1))
-                {
-                    bool cast = false;
-                    for (uint8 i = CURRENT_GENERIC_SPELL; i != CURRENT_AUTOREPEAT_SPELL; ++i)
-                    {
-                        Spell const* spell = target->GetCurrentSpell(CurrentSpellTypes(i));
-                        if (spell && spell->GetTimer() > 1500 &&
-                            (IAmFree() ? (spell->m_targets.GetUnitTarget() == me) : (master->GetGroup() && master->GetGroup()->IsMember(spell->m_targets.GetObjectTargetGUID()))))
-                        {
-                            cast = true;
-                            break;
-                        }
-                    }
-                    if (cast)
-                    {
-                        me->InterruptNonMeleeSpells(false);
-                        if (doCast(target, GetSpell(CYCLONE_1)))
+            if (IsSpellReady(CYCLONE_1, diff, false) && !HasQueuedSpellAction(CYCLONE_1))
+                if (Unit const* target = FindCastingTarget(20, 0, CYCLONE_1))
+                    if (IsCastingOnMyParty(target, 1500))
+                        if (EnqueueCounterSpellAction(target->GetGUID(), CYCLONE_1, true))
                             return;
-                    }
-                }
-            }
         }
 
         void UpdateAI(uint32 diff) override
@@ -588,6 +563,8 @@ public:
                 CureGroup(GetSpell(CURE_POISON_1), diff);
                 CureGroup(GetSpell(REMOVE_CURSE_1), diff);
             }
+
+            DoPrePullTankHealing(diff);
 
             if (ProcessImmediateNonAttackTarget())
                 return;
@@ -674,49 +651,35 @@ public:
             //Shapeshift into bear if needed
             //bear is lvl 10, bash is lvl 14
             //Retreat is triggered only if hit (SpellHitTarget)
-            if (IsSpellReady(BASH_1, diff) && !CCed(mytar, !mytar->IsNonMeleeSpellCast(false,false,true)) &&
-                mytar->IsWithinMeleeRange(me))
+            if (me->IsInCombat() && IsSpellReady(BASH_1, diff) && !CCed(mytar, !mytar->IsNonMeleeSpellCast(false,false,true)) && mytar->IsWithinMeleeRange(me))
             {
-                if ((_form == DRUID_BEAR_FORM && rage >= acost(BASH_1)) ||
-                    (IsSpellReady(BEAR_FORM_1, diff, false) && doCast(me, GetSpell(BEAR_FORM_1))))
+                if (_form == DRUID_BEAR_FORM || (IsSpellReady(BEAR_FORM_1, diff, false) && doCast(me, GetSpell(BEAR_FORM_1))))
                 {
-                    if (doCast(mytar, GetSpell(BASH_1)))
+                    if (rage >= acost(BASH_1) && doCast(mytar, GetSpell(BASH_1)))
                         return;
                 }
             }
 
-            //Main mode
-            //Choose form. Mode should be selected considering bot_ai::CheckAttackTarget() positioning selection
-            //1 Tanking mode
-            if ((IsTank() || (IsWanderer() && bot_ai::IsMelee() && !GetSpell(CAT_FORM_1))) && GetSpell(BEAR_FORM_1))
+            BotStances need_form = _selectShapeshift();
+            uint32 form_base_spellid = _baseSpellForShapeshift(need_form);
+            if (_form == need_form || !form_base_spellid || (IsSpellReady(form_base_spellid, diff, false) && doCast(me, GetSpell(form_base_spellid))))
             {
-                if (_form == DRUID_BEAR_FORM || (IsSpellReady(BEAR_FORM_1, diff, false) && doCast(me, GetSpell(BEAR_FORM_1))))
-                    doBearActions(mytar, diff);
-            }
-            //2 Melee (tanking cat impossible: cat lvl 20, bear lvl 10)
-            else if (bot_ai::IsMelee())
-            {
-                //if lvl < 20 then bot gonna just melee its targets
-                if (_form == DRUID_CAT_FORM || (IsSpellReady(CAT_FORM_1, diff, false) && doCast(me, GetSpell(CAT_FORM_1))))
-                    doCatActions(mytar, diff);
-            }
-            //3 Ranged dps
-            else if (HasRole(BOT_ROLE_DPS))
-            {
-                //pure dps goes moonkin
-                if (_form == DRUID_MOONKIN_FORM ||
-                    ((!GetSpell(MOONKIN_FORM_1) || HasRole(BOT_ROLE_HEAL)) && (_form == BOT_STANCE_NONE || removeShapeshiftForm())) ||
-                    (!HasRole(BOT_ROLE_HEAL) && IsSpellReady(MOONKIN_FORM_1, diff, false) && doCast(me, GetSpell(MOONKIN_FORM_1))))
-                    doBalanceActions(mytar, diff);
-            }
-            //4 Healer
-            else if (HasRole(BOT_ROLE_HEAL))
-            {
-                //pure healer goes tree
-                if (_form == DRUID_TREE_FORM ||
-                    ((!GetSpell(TREE_OF_LIFE_FORM_1) || HasRole(BOT_ROLE_DPS)) && (_form == BOT_STANCE_NONE || removeShapeshiftForm())) ||
-                    (!HasRole(BOT_ROLE_DPS) && IsSpellReady(TREE_OF_LIFE_FORM_1, diff) && doCast(me, GetSpell(TREE_OF_LIFE_FORM_1))))
-                {/*do nothing*/} //not a mistake
+                switch (need_form)
+                {
+                    case DRUID_BEAR_FORM:
+                        doBearActions(mytar, diff);
+                        break;
+                    case DRUID_CAT_FORM:
+                        doCatActions(mytar, diff);
+                        break;
+                    case DRUID_MOONKIN_FORM:
+                    case BOT_STANCE_NONE:
+                        if (HasRole(BOT_ROLE_DPS))
+                            doBalanceActions(mytar, diff);
+                        break;
+                    default:
+                        break;
+                }
             }
         }
 
@@ -743,12 +706,12 @@ public:
             //GROWL //No GCD
             Unit* u = mytar->GetVictim();
             if (IsSpellReady(GROWL_1, diff, false) && u && u != me && Rand() < 40 && dist < 30 &&
-                mytar->GetTypeId() == TYPEID_UNIT && !mytar->IsControlledByPlayer() &&
+                mytar->IsCreature() && !mytar->IsControlledByPlayer() &&
                 !CCed(mytar) && !mytar->HasAuraType(SPELL_AURA_MOD_TAUNT) &&
                 (!IsTank(u) || (IsTank() && GetHealthPCT(me) > 67 &&
                 (GetHealthPCT(u) < 30 || (IsOffTank() && !IsOffTank(u) && IsPointedOffTankingTarget(mytar)) ||
                 (!IsOffTank() && IsOffTank(u) && IsPointedTankingTarget(mytar))))) &&
-                ((!IsTankingClass(u->GetClass()) && GetHealthPCT(u) < 80) || IsTank()) &&
+                ((!BotDataMgr::IsTankingClass(u->GetClass()) && GetHealthPCT(u) < 80) || IsTank()) &&
                 IsInBotParty(u))
             {
                 if (doCast(mytar, GetSpell(GROWL_1)))
@@ -757,7 +720,7 @@ public:
             //GROWL 2 (distant)
             if (IsSpellReady(GROWL_1, diff, false) && !IAmFree() && u == me &&  Rand() < 20 && IsTank() &&
                 (IsOffTank() || master->GetBotMgr()->GetNpcBotsCountByRole(BOT_ROLE_TANK_OFF) == 0) &&
-                !(me->GetLevel() >= 40 && mytar->GetTypeId() == TYPEID_UNIT &&
+                !(me->GetLevel() >= 40 && mytar->IsCreature() &&
                 (mytar->ToCreature()->IsDungeonBoss() || mytar->ToCreature()->isWorldBoss())))
             {
                 if (Unit* tUnit = FindDistantTauntTarget())
@@ -768,13 +731,13 @@ public:
             }
             //Challenging Roar
             if (IsSpellReady(CHALLENGING_ROAR_1, diff) &&
-                !(u == me && me->GetLevel() >= 40 && mytar->GetTypeId() == TYPEID_UNIT &&
+                !(u == me && me->GetLevel() >= 40 && mytar->IsCreature() &&
                 (mytar->ToCreature()->IsDungeonBoss() || mytar->ToCreature()->isWorldBoss())) &&
                 rage >= acost(CHALLENGING_ROAR_1))
             {
                 u = mytar->GetVictim();
                 if (u && u != me && !IsTank(u) && IsInBotParty(u) && !CCed(mytar) && dist <= 10 && Rand() < 25 &&
-                    (!IsTankingClass(u->GetClass()) || IsTank()))
+                    (!BotDataMgr::IsTankingClass(u->GetClass()) || IsTank()))
                 {
                     if (doCast(me, GetSpell(CHALLENGING_ROAR_1)))
                         return;
@@ -784,9 +747,9 @@ public:
                     std::list<Unit*> targets;
                     GetNearbyTargetsList(targets, 9.f, 1);
                     uint8 count = 0;
-                    for (std::list<Unit*>::const_iterator itr = targets.begin(); itr != targets.end(); ++itr)
+                    for (Unit const* u : targets)
                     {
-                        if (!((*itr)->GetVictim() && IsTank((*itr)->GetVictim())))
+                        if (!(u->GetVictim() && IsTank(u->GetVictim())))
                             if (++count > 1)
                                 break;
                     }
@@ -897,8 +860,8 @@ public:
                 return;
 
             //Faerie Fire (Feral, Cat)
-            if (IsSpellReady(FAERIE_FIRE_FERAL_1, diff) && me->IsInCombat() && !me->HasAuraType(SPELL_AURA_MOD_STEALTH) &&
-                Rand() < 35 && me->GetDistance(mytar) < 30 &&
+            if (IsSpellReady(FAERIE_FIRE_FERAL_1, diff) && (mytar->IsControlledByPlayer() ? !mytar->IsInCombat() : me->IsInCombat()) && !me->HasAuraType(SPELL_AURA_MOD_STEALTH) &&
+                Rand() < ((mytar->GetClass() == CLASS_ROGUE || mytar->GetShapeshiftForm() == FORM_CAT) ? 35 : 10) && me->GetDistance(mytar) < 30 &&
                 !mytar->HasAuraTypeWithFamilyFlags(SPELL_AURA_MOD_RESISTANCE_PCT, SPELLFAMILY_DRUID, 0x400))
             {
                 if (doCast(mytar, GetSpell(FAERIE_FIRE_FERAL_1)))
@@ -928,7 +891,7 @@ public:
                     {}
                 }
                 //Savage Roar
-                if (IsSpellReady(SAVAGE_ROAR_1, diff) && comboPoints >= 1 && (me->IsInCombat() || mytar->IsInCombat()) &&
+                if (IsSpellReady(SAVAGE_ROAR_1, diff) && comboPoints >= 1 && comboPoints <= 3 && (me->IsInCombat() || mytar->IsInCombat()) &&
                     !me->HasAuraType(SPELL_AURA_MOD_STEALTH) && energy >= acost(SAVAGE_ROAR_1) &&
                     !me->GetAuraEffect(SPELL_AURA_DUMMY, SPELLFAMILY_DRUID, 0, 0x10000000, 0))
                 {
@@ -954,9 +917,10 @@ public:
                         return;
                 }
             }
+
             //Tiger's Fury (no GCD) cannot use while Berserk is active
-            if (IsSpellReady(TIGERS_FURY_1, diff, false) && mytar->GetHealth() > me->GetHealth() / 4 &&
-                (me->GetLevel() < 55 || energy <= 40) && Rand() < 40 &&
+            if (IsSpellReady(TIGERS_FURY_1, diff, false) && mytar->GetHealth() > me->GetHealth() / 4 && (me->GetLevel() < 55 || energy <= 40) && Rand() < 80 &&
+                !me->GetAuraEffect(SPELL_AURA_ADD_PCT_MODIFIER, SPELLFAMILY_DRUID, 0x0, 0x200000, 0x0) &&
                 !me->GetAuraEffect(SPELL_AURA_MECHANIC_IMMUNITY, SPELLFAMILY_DRUID, 0x0, 0x0, 0x40))
             {
                 if (doCast(me, GetSpell(TIGERS_FURY_1)))
@@ -964,8 +928,9 @@ public:
             }
             //Berserk can be used After Tiger's Fury without dispelling it
             //Berserk (Cat)
-            if (IsSpellReady(BERSERK_1, diff) && !HasRole(BOT_ROLE_HEAL) && (!me->HasAuraType(SPELL_AURA_MOD_STEALTH) || energy >= 40) && Rand() < 50 &&
-                (mytar->GetTypeId() == TYPEID_PLAYER || mytar->GetHealth() + 5000 > me->GetHealth()))
+            if (IsSpellReady(BERSERK_1, diff) && Rand() < 80 && !IsSpellReady(TIGERS_FURY_1, diff, false) && (!HasRole(BOT_ROLE_HEAL) || me->HasAuraType(SPELL_AURA_MOD_FEAR)) &&
+                (!me->HasAuraType(SPELL_AURA_MOD_STEALTH) || energy >= 40 || me->GetAuraEffect(SPELL_AURA_ADD_PCT_MODIFIER, SPELLFAMILY_DRUID, 0x0, 0x200000, 0x0)) &&
+                (mytar->IsPlayer() || mytar->GetHealth() + 5000 > me->GetHealth()))
             {
                 if (doCast(me, GetSpell(BERSERK_1)))
                     return;
@@ -978,7 +943,7 @@ public:
                     GetSpell(POUNCE_1) &&
                     !mytar->HasAuraType(SPELL_AURA_MOD_STUN) &&
                     mytar->GetDiminishing(DIMINISHING_OPENING_STUN) < DIMINISHING_LEVEL_3 &&
-                    (mytar->GetTypeId() == TYPEID_PLAYER || (!IAmFree() && master->GetNpcBotsCount() > 1)) ? POUNCE_1 :
+                    (mytar->IsPlayer() || (!IAmFree() && master->GetNpcBotsCount() > 1)) ? POUNCE_1 :
                     GetSpell(RAVAGE_1) ? RAVAGE_1 :
                     GetSpell(SHRED_1) ? SHRED_1 : 0;
 
@@ -1006,23 +971,23 @@ public:
             if (comboPoints > 0)
             {
                 //Maim
-                if (IsSpellReady(MAIM_1, diff) && !CCed(mytar) && energy >= acost(MAIM_1) &&
-                    (comboPoints >= 4 || mytar->IsNonMeleeSpellCast(false,false,true)))
+                if (IsSpellReady(MAIM_1, diff) && !CCed(mytar) && mytar->GetHealth() > me->GetMaxHealth() / 8 && energy >= acost(MAIM_1) &&
+                    (comboPoints >= (mytar->IsNonMeleeSpellCast(false, false, true) ? 1 : (!!mytar->GetVictim() || mytar->IsControlledByPlayer()) ? 4 : 6)))
                 {
                     if (doCast(mytar, GetSpell(MAIM_1)))
                         return;
                 }
                 //Ferocious Bite
-                if (IsSpellReady(FEROCIOUS_BITE_1, diff) && (comboPoints >= 4 || mytar->GetHealth() < me->GetMaxHealth() / 4) &&
-                    energy >= acost(FEROCIOUS_BITE_1) && Rand() < (50 + comboPoints * 20))
+                if (IsSpellReady(FEROCIOUS_BITE_1, diff) && Rand() < (50 + comboPoints * 20) &&
+                    ((comboPoints >= 4 && mytar->IsControlledByPlayer()) || mytar->GetHealth() < me->GetMaxHealth() / std::max<int32>(1, 6 - comboPoints)) &&
+                    energy >= acost(FEROCIOUS_BITE_1))
                 {
                     if (doCast(mytar, GetSpell(FEROCIOUS_BITE_1)))
                         return;
                 }
                 //Rip
-                if (IsSpellReady(RIP_1, diff) && (comboPoints < 4 || !GetSpell(FEROCIOUS_BITE_1)) &&
-                    energy >= acost(RIP_1) && mytar->GetHealth() > me->GetMaxHealth() / 4 &&
-                    Rand() < (50 + 40 * (mytar->GetTypeId() == TYPEID_PLAYER && IsMeleeClass(mytar->GetClass()))) &&
+                if (IsSpellReady(RIP_1, diff) && comboPoints >= (mytar->IsControlledByPlayer() ? 4 : 5) && Rand() < 90 &&
+                    mytar->GetHealth() > me->GetMaxHealth() / (mytar->IsControlledByPlayer() ? 4 : 2) && energy >= acost(RIP_1) &&
                     !mytar->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DRUID, 0x800000, 0x0, 0x0, me->GetGUID()))
                 {
                     if (doCast(mytar, GetSpell(RIP_1)))
@@ -1040,30 +1005,31 @@ public:
                     if (doCast(mytar, GetSpell(SWIPE_CAT_1)))
                         return;
             }
+
             //Shred
-            if (IsSpellReady(SHRED_1, diff) && comboPoints < 4 && energy >= acost(SHRED_1) && Rand() < 85 &&
-                !mytar->HasInArc(float(M_PI), me))
+            if (IsSpellReady(SHRED_1, diff) && ((Rand() < 70 && energy >= acost(SHRED_1)) || !!me->GetAuraEffect(SPELL_AURA_ADD_PCT_MODIFIER, SPELLFAMILY_DRUID, 0x0, 0x200000, 0x0)) &&
+                /*comboPoints < 5 && */ !mytar->HasInArc(float(M_PI), me))
             {
                 if (doCast(mytar, GetSpell(SHRED_1)))
                     return;
             }
             //Mangle (Cat)
             if (IsSpellReady(MANGLE_CAT_1, diff) && comboPoints < 5 && energy >= acost(MANGLE_CAT_1) &&
-                (Rand() < 20 || !mytar->GetAuraEffect(SPELL_AURA_MOD_MECHANIC_DAMAGE_TAKEN_PERCENT, SPELLFAMILY_DRUID, 0x0, 0x400, 0x0)))
+                !me->GetAuraEffect(SPELL_AURA_ADD_PCT_MODIFIER, SPELLFAMILY_DRUID, 0x0, 0x200000, 0x0) &&
+                !mytar->GetAuraEffect(SPELL_AURA_MOD_MECHANIC_DAMAGE_TAKEN_PERCENT, SPELLFAMILY_DRUID, 0x0, 0x400, 0x0))
             {
                 if (doCast(mytar, GetSpell(MANGLE_CAT_1)))
                     return;
             }
             //Rake
-            if (IsSpellReady(RAKE_1, diff) && comboPoints < 3 && energy >= acost(RAKE_1) && Rand() < 60 &&
+            if (IsSpellReady(RAKE_1, diff) && (comboPoints <= (mytar->IsControlledByPlayer() ? 4 : 5)) && Rand() < 100 && energy >= acost(RAKE_1) &&
                 !mytar->GetAuraEffect(SPELL_AURA_PERIODIC_DAMAGE, SPELLFAMILY_DRUID, 0x1000, 0x0, 0x0, me->GetGUID()))
             {
                 if (doCast(mytar, GetSpell(RAKE_1)))
                     return;
             }
             //Claw
-            if (IsSpellReady(CLAW_1, diff) && comboPoints < 5 && Rand() < 50 && (!GetSpell(SHRED_1) || mytar->HasInArc(float(M_PI), me)) &&
-                energy >= acost(CLAW_1))
+            if (IsSpellReady(CLAW_1, diff) && comboPoints < 5 && Rand() < 40 && energy >= acost(CLAW_1) && (!GetSpell(SHRED_1) || mytar->HasInArc(float(M_PI), me)))
             {
                 if (doCast(mytar, GetSpell(CLAW_1)))
                     return;
@@ -1072,10 +1038,6 @@ public:
 
         void doBalanceActions(Unit* mytar, uint32 diff)
         {
-            //debug
-            if (me->GetPowerType() != POWER_MANA)
-                return;
-
             MoveBehind(mytar);
 
             if (HasRole(BOT_ROLE_HEAL) && GetManaPCT(me) < 25)
@@ -1099,7 +1061,7 @@ public:
             //Starfall
             if (IsSpellReady(STARFALL_1, diff) && Rand() < 40)
             {
-                bool cast = (mytar->GetTypeId() == TYPEID_PLAYER || me->getAttackers().size() > 1);
+                bool cast = (mytar->IsPlayer() || me->getAttackers().size() > 1);
                 if (!cast)
                 {
                     std::list<Unit*> targets;
@@ -1189,7 +1151,7 @@ public:
         void BreakCC(uint32 diff) override
         {
             if (GC_Timer <= diff && Rand() < 25 && GetManaPCT(me) > 15 &&
-                (me->IsPolymorphed() || me->HasAuraWithMechanic((1<<MECHANIC_SNARE)|(1<<MECHANIC_ROOT))))
+                (me->IsPolymorphed() || me->HasAuraWithMechanic((1u<<MECHANIC_SNARE)|(1u<<MECHANIC_ROOT))))
             {
                 uint32 sshift;
                 switch (_form)
@@ -1213,7 +1175,7 @@ public:
                     return;
                 }
             }
-            if (IsSpellReady(BERSERK_1, diff) && Rand() < 10 && me->HasAuraWithMechanic(1<<MECHANIC_FEAR))
+            if (IsSpellReady(BERSERK_1, diff) && Rand() < 10 && me->HasAuraWithMechanic(1u<<MECHANIC_FEAR))
             {
                 if (doCast(me, GetSpell(BERSERK_1)))
                     return;
@@ -1249,7 +1211,7 @@ public:
             if (IsSpellReady(NATURES_SWIFTNESS_1, diff, false) && Rand() < 80 &&
                 (me->IsInCombat() || target->IsInCombat()) &&//may just revive
                 hp <= 20 && xppct <= 0 && xphploss > _heals[HEALING_TOUCH_1] / 2 &&
-                (target->GetTypeId() == TYPEID_PLAYER || IsTank(target) || target->IsInCombat() || !target->getAttackers().empty()))
+                (target->IsPlayer() || IsTank(target) || target->IsInCombat() || !target->getAttackers().empty()))
             {
                 me->InterruptNonMeleeSpells(false);
                 if (doCast(me, GetSpell(NATURES_SWIFTNESS_1)))
@@ -1260,12 +1222,10 @@ public:
             }
             if (IsSpellReady(NOURISH_1, diff) && xppct <= 65 && xphploss > _heals[REJUVENATION_1])
             {
-                static uint8 minHots = 2;
+                const uint8 minHots = 2;
                 uint8 hots = 0;
-                Unit::AuraEffectList const& effectList = target->GetAuraEffectsByType(SPELL_AURA_PERIODIC_HEAL);
-                for (Unit::AuraEffectList::const_iterator itr = effectList.begin(); itr != effectList.end(); ++itr)
+                for (AuraEffect const* eff : target->GetAuraEffectsByType(SPELL_AURA_PERIODIC_HEAL))
                 {
-                    AuraEffect const* eff = *itr;
                     if (eff->GetCasterGUID() != me->GetGUID())
                         continue;
                     SpellInfo const* spellInfo = eff->GetSpellInfo();
@@ -1394,6 +1354,57 @@ public:
             }
         }
 
+        void DoPrePullTankHealing(uint32 diff)
+        {
+            if (prePullHealTimer > diff || GC_Timer > diff || Rand() > 75)
+                return;
+
+            prePullHealTimer = PRE_PULL_HEAL_TIMER;
+
+            if (me->IsMounted() || me->GetVehicle() || !HasRole(BOT_ROLE_HEAL) || HasRole(BOT_ROLE_TANK) || IAmFree() || !master->GetGroup() || GetManaPCT(me) < 55 || IsCasting())
+                return;
+
+            for (Unit* member : BotMgr::GetAllGroupMembers(master))
+            {
+                if (member == me || !member->IsAlive() || me->GetMap() != member->FindMap() || !IsTank(member) || me->GetDistance(member) > 40.f)
+                    continue;
+
+                Unit const* target = !member->getAttackers().empty() ? *member->getAttackers().begin() : member->GetVictim();
+                if (!target || !target->IsCreature() || member->GetExactDistSq(target) > 50 * 50)
+                    continue;
+
+                //check if combat is starting
+                const bool engaged = (!member->IsInCombat() || !target->IsInCombat()) && target == member->GetVictim(); //BotActionTypes::BOT_ACTION_PULL / master attacks
+                const bool engaged_by = target->ToCreature()->CanHaveThreatList() && target->GetThreatMgr().GetThreat(member) < member->GetMaxHealth() / 4;
+
+                if (!engaged && !engaged_by)
+                    continue;
+
+                if (IsSpellReady(REJUVENATION_1, diff) && !member->GetAuraEffect(SPELL_AURA_PERIODIC_HEAL, SPELLFAMILY_DRUID, 0x10, 0x0, 0x0, me->GetGUID()))
+                {
+                    if (doCast(member, GetSpell(REJUVENATION_1)))
+                        return;
+                }
+
+                // Healing spells with cast time will be interrupted when cast on target with full hp
+                //if (IsSpellReady(REGROWTH_1, diff) && !member->GetAuraEffect(SPELL_AURA_PERIODIC_HEAL, SPELLFAMILY_DRUID, 0x40, 0x0, 0x0, me->GetGUID()))
+                //{
+                //    if (doCast(member, GetSpell(REGROWTH_1)))
+                //        return;
+                //}
+
+                if (IsSpellReady(LIFEBLOOM_1, diff))
+                {
+                    AuraEffect const* bloom = member->GetAuraEffect(SPELL_AURA_PERIODIC_HEAL, SPELLFAMILY_DRUID, 0x0, 0x10, 0x0, me->GetGUID());
+                    if (!bloom || bloom->GetBase()->GetStackAmount() < 3 || bloom->GetBase()->GetDuration() < 3500)
+                    {
+                        if (doCast(member, GetSpell(LIFEBLOOM_1)))
+                            return;
+                    }
+                }
+            }
+        }
+
         void DoNonCombatActions(uint32 diff)
         {
             if (GC_Timer > diff || me->IsMounted() || IsCasting())
@@ -1430,18 +1441,14 @@ public:
         {
             if (!IsSpellReady(INNERVATE_1, diff) || Rand() > 25)
                 return;
-            if (_form != BOT_STANCE_NONE && _form != DRUID_MOONKIN_FORM && _form != DRUID_TREE_FORM &&
-                (IsTank() || me->getAttackers().size() > 3))
+            if (_form != BOT_STANCE_NONE && _form != DRUID_MOONKIN_FORM && _form != DRUID_TREE_FORM && (IsTank() || me->getAttackers().size() > 3))
                 return;
 
-            static const uint8 minmanaval = 30;
             Unit* iTarget = nullptr;
 
-            if (master->IsInCombat() && master->GetPowerType() == POWER_MANA &&
-                GetManaPCT(master) < minmanaval && !master->GetAuraEffect(SPELL_AURA_PERIODIC_ENERGIZE, SPELLFAMILY_DRUID, 0x0, 0x1000, 0x0))
+            if (_isValidInnervateTarget(master))
                 iTarget = master;
-            else if (me->IsInCombat() && me->GetPowerType() == POWER_MANA &&
-                GetManaPCT(me) < minmanaval && !me->GetAuraEffect(SPELL_AURA_PERIODIC_ENERGIZE, SPELLFAMILY_DRUID, 0x0, 0x1000, 0x0))
+            else if (_isValidInnervateTarget(me))
                 iTarget = me;
 
             if (!IAmFree())
@@ -1449,17 +1456,9 @@ public:
                 Group const* group = master->GetGroup();
                 if (!iTarget && !group) //first check master's bots
                 {
-                    BotMap const* map = master->GetBotMgr()->GetBotMap();
-                    for (BotMap::const_iterator itr = map->begin(); itr != map->end(); ++itr)
+                    for (auto const& [_, bot] : *master->GetBotMgr()->GetBotMap())
                     {
-                        Creature* bot = itr->second;
-                        if (!bot || !bot->IsInCombat() || !bot->IsAlive() || bot->IsTempBot()) continue;
-                        if (bot->GetPowerType() != POWER_MANA) continue;
-                        if (bot->GetBotClass() == BOT_CLASS_HUNTER || bot->GetBotClass() == BOT_CLASS_WARLOCK ||
-                            bot->GetBotClass() == BOT_CLASS_SPHYNX || bot->GetBotClass() == BOT_CLASS_SPELLBREAKER ||
-                            bot->GetBotClass() == BOT_CLASS_NECROMANCER) continue;
-                        if (me->GetExactDist(bot) > 30) continue;
-                        if (GetManaPCT(bot) < minmanaval && !bot->GetAuraEffect(SPELL_AURA_PERIODIC_ENERGIZE, SPELLFAMILY_DRUID, 0x0, 0x1000, 0x0))
+                        if (bot && !bot->IsTempBot() && _isValidInnervateTarget(bot))
                         {
                             iTarget = bot;
                             break;
@@ -1469,23 +1468,16 @@ public:
                 if (!iTarget && group) //cycle through player members...
                 {
                     std::vector<Unit*> members = BotMgr::GetAllGroupMembers(group);
-                    for (uint8 i = 0; i < 2 && !iTarget; ++i)
+                    for (auto i : NPCBots::index_array<uint8, 2>)
                     {
+                        if (iTarget)
+                            break;
                         for (Unit* member : members)
                         {
-                            if (!(i == 0 ? member->IsPlayer() : member->IsNPCBot()) || !member->IsInWorld() || !member->IsInCombat() ||
-                                !member->IsAlive() || me->GetExactDist(member) > 30 || GetManaPCT(member) > minmanaval ||
-                                member->GetAuraEffect(SPELL_AURA_PERIODIC_ENERGIZE, SPELLFAMILY_DRUID, 0x0, 0x1000, 0x0))
+                            if (!(i == 0 ? member->IsPlayer() : member->IsNPCBot()) || !_isValidInnervateTarget(member))
                                 continue;
-                            if (i == 1)
-                            {
-                                Creature const* bot = member->ToCreature();
-                                if (bot->IsTempBot() || bot->GetPowerType() != POWER_MANA ||
-                                    bot->GetBotClass() == BOT_CLASS_HUNTER || bot->GetBotClass() == BOT_CLASS_WARLOCK ||
-                                    bot->GetBotClass() == BOT_CLASS_SPHYNX || bot->GetBotClass() == BOT_CLASS_SPELLBREAKER ||
-                                    bot->GetBotClass() == BOT_CLASS_NECROMANCER)
-                                    continue;
-                            }
+                            if (i == 1 && member->ToCreature()->IsTempBot())
+                                continue;
                             iTarget = member;
                             break;
                         }
@@ -1495,7 +1487,7 @@ public:
 
             if (iTarget && doCast(iTarget, INNERVATE_1))
             {
-                if (iTarget->GetTypeId() == TYPEID_PLAYER)
+                if (iTarget->IsPlayer())
                     ReportSpellCast(INNERVATE_1, LocalizedNpcText(iTarget->ToPlayer(), BOT_TEXT__ON_YOU), iTarget->ToPlayer());
 
                 if (!IAmFree() && iTarget != master)
@@ -1570,15 +1562,13 @@ public:
                 }
             }
 
-            BotMap const* botMap = master->GetBotMgr()->GetBotMap();
-            for (BotMap::const_iterator itr = botMap->begin(); itr != botMap->end(); ++itr)
+            for (auto const& [_, bot] : *master->GetBotMgr()->GetBotMap())
             {
-                Creature* bot = itr->second;
                 if (bot && bot->IsInWorld() && !bot->IsAlive() && !bot->GetBotAI()->GetSelfRezSpell() && IsTank(bot) && me->GetDistance(bot) < 80)
                     targets.push_back(bot);
             }
 
-            if (Unit* targetOrCorpse = !targets.empty() ? Acore::Containers::SelectRandomContainerElement(targets) : nullptr)
+            if (Unit* targetOrCorpse = !targets.empty() ? Bcore::Containers::SelectRandomContainerElement(targets) : nullptr)
             {
                 if (me->GetExactDist(targetOrCorpse) > 30 && !HasBotCommandState(BOT_COMMAND_STAY))
                 {
@@ -1590,12 +1580,12 @@ public:
 
                 if (doCast(targetOrCorpse, GetSpell(REBIRTH_1))) //rezzing
                 {
-                    if (targetOrCorpse->GetTypeId() == TYPEID_PLAYER)
+                    if (targetOrCorpse->IsPlayer())
                         BotWhisper(LocalizedNpcText(targetOrCorpse->ToPlayer(), BOT_TEXT_REZZING_YOU), targetOrCorpse->ToPlayer());
                     if (targetOrCorpse != master)
                     {
                         std::string rezstr = LocalizedNpcText(master, BOT_TEXT_REZZING_) + targetOrCorpse->GetName();
-                        if (targetOrCorpse->GetTypeId() == TYPEID_UNIT)
+                        if (targetOrCorpse->IsCreature())
                             rezstr += " (" + LocalizedNpcText(master, BOT_TEXT_BOT_TANK) + ')';
                         BotWhisper(rezstr);
                     }
@@ -1612,7 +1602,7 @@ public:
                 case DRUID_BEAR_FORM:
                     if (me->GetPowerType() != POWER_RAGE)
                     {
-                        //TC_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_RAGE");
+                        //BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_RAGE");
                         me->SetPowerType(POWER_RAGE);
                     }
                     RefreshAura(MASTER_SHAPESHIFTER_BEAR_BUFF, me->GetLevel() >= 20);
@@ -1626,7 +1616,7 @@ public:
                 case DRUID_CAT_FORM:
                     if (me->GetPowerType() != POWER_ENERGY)
                     {
-                        //TC_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_ENERGY");
+                        //BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_ENERGY");
                         me->SetPowerType(POWER_ENERGY);
                     }
                     RefreshAura(MASTER_SHAPESHIFTER_CAT_BUFF, me->GetLevel() >= 20);
@@ -1640,7 +1630,7 @@ public:
                 case DRUID_MOONKIN_FORM:
                     if (me->GetPowerType() != POWER_MANA)
                     {
-                        //TC_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (moonkin)");
+                        //BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (moonkin)");
                         me->SetPowerType(POWER_MANA);
                     }
                     RefreshAura(MASTER_SHAPESHIFTER_MOONKIN_BUFF, me->GetLevel() >= 20);
@@ -1649,7 +1639,7 @@ public:
                 case DRUID_TREE_FORM:
                     if (me->GetPowerType() != POWER_MANA)
                     {
-                        //TC_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (tree)");
+                        //BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (tree)");
                         me->SetPowerType(POWER_MANA);
                     }
                     RefreshAura(MASTER_SHAPESHIFTER_TREE_BUFF, me->GetLevel() >= 20);
@@ -1657,33 +1647,33 @@ public:
                 case DRUID_TRAVEL_FORM:
                     if (me->GetPowerType() != POWER_MANA)
                     {
-                        //TC_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (travel)");
+                        //BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (travel)");
                         me->SetPowerType(POWER_MANA);
                     }
                     break;
                 case DRUID_AQUATIC_FORM:
                     if (me->GetPowerType() != POWER_MANA)
                     {
-                        //TC_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (aquatic)");
+                        //BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (aquatic)");
                         me->SetPowerType(POWER_MANA);
                     }
                     break;
                 case DRUID_FLIGHT_FORM:
                     if (me->GetPowerType() != POWER_MANA)
                     {
-                        //TC_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (flight)");
+                        //BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (flight)");
                         me->SetPowerType(POWER_MANA);
                     }
                     break;
                 case BOT_STANCE_NONE:
                     if (me->GetPowerType() != POWER_MANA)
                     {
-                        //TC_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (deshape)");
+                        //BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): has to set powerType to POWER_MANA (deshape)");
                         me->SetPowerType(POWER_MANA);
                     }
                     break;
                 default:
-                    LOG_ERROR("entities.player", "druid_bot::setStats(): NYI form {}", uint32(form));
+                    BOT_LOG_ERROR("entities.player", "druid_bot::setStats(): NYI form {}", uint32(form));
                     setStats(BOT_STANCE_NONE);
                     return;
             }
@@ -1889,7 +1879,7 @@ public:
 
             //100% mods
             //Clearcasting: -100% mana/rage/energy cost for any spell
-            if (AuraEffect const* eff = me->GetAuraEffect(OMEN_OF_CLARITY_BUFF, 0, me->GetGUID()))
+            if (AuraEffect const* eff = me->GetAuraEffect(SPELL_AURA_ADD_PCT_MODIFIER, SPELLFAMILY_DRUID, 0x0, 0x200000, 0x0))
                 if (eff->IsAffectedOnSpell(spellInfo))
                     pctbonus += 1.0f;
 
@@ -1990,6 +1980,35 @@ public:
                 timebonus += 400;
 
             casttime = std::max<int32>(int32((float(casttime) * (1.0f - pctbonus)) - timebonus), 0);
+        }
+
+        void ApplyClassSpellNotLoseCastTimeMods(SpellInfo const* spellInfo, int32& delayReduce) const override
+        {
+            uint32 baseId = spellInfo->GetFirstRankSpell()->Id;
+            //SpellSchoolMask schools = spellInfo->GetSchoolMask();
+            uint8 lvl = me->GetLevel();
+            int32 reduceBonus = 0;
+
+            if (lvl >= 15 && baseId == WRATH_1)
+                reduceBonus += 50;
+
+            if (GetSpec() == BOT_SPEC_DRUID_BALANCE && lvl >= 25)
+            {
+                if (AuraEffect const* ofre = me->GetAuraEffect(SPELL_AURA_PERIODIC_ENERGIZE, SPELLFAMILY_DRUID, 2853, EFFECT_2))
+                    if (ofre->IsAffectedOnSpell(spellInfo))
+                        reduceBonus += 100;
+
+                switch (baseId)
+                {
+                    case STARFIRE_1: case HIBERNATE_1: case HURRICANE_1:
+                        reduceBonus += 70;
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            delayReduce += reduceBonus;
         }
 
         void ApplyClassSpellCooldownMods(SpellInfo const* spellInfo, uint32& cooldown) const override
@@ -2166,7 +2185,7 @@ public:
 
             //Handle clearcasting
             //Notes: bugged with hurricane (periodic)
-            if (AuraEffect const* eff = me->GetAuraEffect(OMEN_OF_CLARITY_BUFF, 0, me->GetGUID()))
+            if (AuraEffect const* eff = me->GetAuraEffect(SPELL_AURA_ADD_PCT_MODIFIER, SPELLFAMILY_DRUID, 0x0, 0x200000, 0x0))
                 if (eff->IsAffectedOnSpell(spellInfo) && !spellInfo->IsRankOf(sSpellMgr->GetSpellInfo(HURRICANE_DAMAGE_1)))
                     me->RemoveAurasDueToSpell(OMEN_OF_CLARITY_BUFF);
 
@@ -2202,18 +2221,18 @@ public:
                 {
                     comboPoints++;
                     //debug
-                    //TC_LOG_ERROR("entities.player", "druid_bot CP GEN: %s adds 1, now %u", spell->SpellName[0], uint32(comboPoints));
+                    //BOT_LOG_ERROR("entities.player", "druid_bot CP GEN: %s adds 1, now %u", spell->SpellName[0], uint32(comboPoints));
                     if (primalFuryProc)
                     {
                         comboPoints++;
                         //debug
-                        //TC_LOG_ERROR("entities.player", "druid_bot CP EX: now %u", uint32(comboPoints));
+                        //BOT_LOG_ERROR("entities.player", "druid_bot CP EX: now %u", uint32(comboPoints));
                     }
                     if (comboPoints > 5)
                     {
                         comboPoints = 5;
                         //debug
-                        //TC_LOG_ERROR("entities.player", "druid_bot CP NOR: now %u", uint32(comboPoints));
+                        //BOT_LOG_ERROR("entities.player", "druid_bot CP NOR: now %u", uint32(comboPoints));
                     }
                 }
                 //Combo point spending
@@ -2221,14 +2240,14 @@ public:
                 else if (spell->NeedsComboPoints())
                 {
                     //debug
-                    //TC_LOG_ERROR("entities.player", "druid_bot CP SPEND1: %u to 0", uint32(comboPoints));
+                    //BOT_LOG_ERROR("entities.player", "druid_bot CP SPEND1: %u to 0", uint32(comboPoints));
                     if (lvl >= 25 && comboPoints > 0)
                     {
                         if (urand(1,100) <= uint32(comboPoints * 20))
                         {
                             me->CastSpell(me, PREDATORS_SWIFTNESS_BUFF, true);
                             //debug
-                            //TC_LOG_ERROR("entities.player", "druid_bot CP SPEND1: PS proc!");
+                            //BOT_LOG_ERROR("entities.player", "druid_bot CP SPEND1: PS proc!");
                         }
                     }
                     comboPoints = 0;
@@ -2273,7 +2292,7 @@ public:
                 if (Aura* stu = target->GetAura(spellId))
                 {
                     //1 extra second on creatures
-                    uint32 dur = stu->GetDuration() + target->GetTypeId() == TYPEID_PLAYER ? 1000 : 2000;
+                    uint32 dur = stu->GetDuration() + (target->IsPlayer() ? 1000 : 2000);
                     stu->SetDuration(dur);
                     stu->SetMaxDuration(dur);
                 }
@@ -2352,7 +2371,7 @@ public:
                     mark->SetMaxDuration(dur);
 
                     //Improved Mark of the Wild: +40% effect
-                    for (uint8 i = 0; i != MAX_SPELL_EFFECTS; ++i)
+                    for (auto i : NPCBots::index_array<uint8, MAX_SPELL_EFFECTS>)
                         if (AuraEffect* app = mark->GetEffect(i))
                             app->ChangeAmount((app->GetAmount() * 14) / 10);
                 }
@@ -2481,9 +2500,9 @@ public:
             OnSpellHit(caster, spell);
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
-            bot_ai::DamageDealt(victim, damage, damageType);
+            bot_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override
@@ -2509,7 +2528,7 @@ public:
 
         uint8 GetPetPositionNumber(Creature const* summon) const override
         {
-            for (uint8 i = 0; i != MAX_TREANTS; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_TREANTS>)
                 if (_treants[i] == summon->GetGUID())
                     return i;
 
@@ -2520,9 +2539,9 @@ public:
         {
             UnsummonTreants();
 
-            uint32 entry = BOT_PET_FORCE_OF_NATURE;
+            const uint32 entry = BOT_PET_FORCE_OF_NATURE;
 
-            for (uint8 i = 0; i != MAX_TREANTS; ++i)
+            for ([[maybe_unused]] auto i : NPCBots::index_array<uint8, MAX_TREANTS>)
             {
                 //Position pos;
 
@@ -2550,7 +2569,7 @@ public:
             if (summon->GetEntry() == BOT_PET_FORCE_OF_NATURE)
             {
                 bool found = false;
-                for (uint8 i = 0; i != MAX_TREANTS; ++i)
+                for (auto i : NPCBots::index_array<uint8, MAX_TREANTS>)
                 {
                     if (!_treants[i])
                     {
@@ -2561,7 +2580,7 @@ public:
                 }
                 if (!found)
                 {
-                    LOG_ERROR("entities.unit", "Druid_bot:JustSummoned() treants array is full");
+                    BOT_LOG_ERROR("entities.unit", "Druid_bot:JustSummoned() treants array is full");
                     ASSERT(false);
                 }
             }
@@ -2569,13 +2588,13 @@ public:
 
         void SummonedCreatureDespawn(Creature* summon) override
         {
-            //TC_LOG_ERROR("entities.unit", "SummonedCreatureDespawn: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
+            //BOT_LOG_ERROR("entities.unit", "SummonedCreatureDespawn: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
             //if (summon == botPet)
             //    botPet = nullptr;
             if (summon->GetEntry() == BOT_PET_FORCE_OF_NATURE)
             {
                 //bool found = false;
-                for (uint8 i = 0; i != MAX_TREANTS; ++i)
+                for (auto i : NPCBots::index_array<uint8, MAX_TREANTS>)
                 {
                     if (_treants[i] == summon->GetGUID())
                     {
@@ -2586,7 +2605,7 @@ public:
                 }
                 //if (!found)
                 //{
-                //    LOG_ERROR("entities.unit", "Druid_bot:SummonedCreatureDespawn() treant is not found in array");
+                //    BOT_LOG_ERROR("entities.unit", "Druid_bot:SummonedCreatureDespawn() treant is not found in array");
                 //    ASSERT(false);
                 //}
             }
@@ -2594,7 +2613,7 @@ public:
 
         void UnsummonTreants()
         {
-            for (uint8 i = 0; i != MAX_TREANTS; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_TREANTS>)
             {
                 if (_treants[i])
                 {
@@ -2608,7 +2627,7 @@ public:
 
         void UnsummonAll(bool /*savePets*/ = true) override
         {
-            for (uint8 i = 0; i != MAX_TREANTS; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_TREANTS>)
             {
                 if (_treants[i])
                     if (Unit* tr = ObjectAccessor::GetUnit(*me, _treants[i]))
@@ -2632,7 +2651,7 @@ public:
         void Reset() override
         {
             UnsummonAll(false);
-            for (uint8 i = 0; i != MAX_TREANTS; ++i)
+            for (auto i : NPCBots::index_array<uint8, MAX_TREANTS>)
                 _treants[i] = ObjectGuid::Empty;
 
             //_form = BOT_STANCE_NONE;
@@ -2645,6 +2664,7 @@ public:
 
             hibery = false;
             hiberyCheckTimer = 0;
+            prePullHealTimer = 0;
 
             me->SetMaxPower(POWER_ENERGY, 100); //for regeneration
             rageLossMult = sWorld->getRate(RATE_POWER_RAGE_LOSS);
@@ -2659,6 +2679,7 @@ public:
             if (ragetimer > diff)                   ragetimer -= diff;
 
             if (hiberyCheckTimer > diff)            hiberyCheckTimer -= diff;
+            if (prePullHealTimer > diff)            prePullHealTimer -= diff;
         }
 
         void InitPowers() override
@@ -2918,8 +2939,72 @@ public:
         }
 
     private:
+        bool _isValidInnervateTarget(Unit const* unit) const
+        {
+            if (!unit || unit->GetPowerType() != POWER_MANA || !unit->IsInCombat() || !unit->IsInMap(me) || me->GetExactDist(unit) > 30.f ||
+                unit->GetAuraEffect(SPELL_AURA_PERIODIC_ENERGIZE, SPELLFAMILY_DRUID, 0x0, 0x1000, 0x0))
+                return false;
+
+            if (unit->IsNPCBot())
+            {
+                switch (unit->ToCreature()->GetBotClass())
+                {
+                    case BOT_CLASS_HUNTER: case BOT_CLASS_WARLOCK: case BOT_CLASS_SPHYNX: case BOT_CLASS_SPELLBREAKER: case BOT_CLASS_NECROMANCER:
+                        return false;
+                    default:
+                        break;
+                }
+            }
+
+            uint8 mpct = (unit->GetMaxPower(POWER_MANA) - unit->GetPower(POWER_MANA) > me->GetCreateMana() * 2) ? 15 : 3;
+            if (GetManaPCT(unit) >= mpct)
+                return false;
+
+            return true;
+        }
+        static uint32 _baseSpellForShapeshift(BotStances form)
+        {
+            switch (form)
+            {
+                case DRUID_BEAR_FORM:
+                    return BEAR_FORM_1;
+                case DRUID_CAT_FORM:
+                    return CAT_FORM_1;
+                case DRUID_MOONKIN_FORM:
+                    return MOONKIN_FORM_1;
+                case DRUID_TREE_FORM:
+                    return TREE_OF_LIFE_FORM_1;
+                case DRUID_TRAVEL_FORM:
+                    return TRAVEL_FORM_1;
+                case DRUID_AQUATIC_FORM:
+                    return AQUATIC_FORM_1;
+                case DRUID_FLIGHT_FORM:
+                    return FLIGHT_FORM_1;
+                default:
+                    return 0;
+            }
+        }
+        BotStances _selectShapeshift() const
+        {
+            BotStances form = BOT_STANCE_NONE;
+            if (bot_ai::IsMelee())
+            {
+                bool has_cat_form_spell = !!GetSpell(_baseSpellForShapeshift(DRUID_CAT_FORM));
+                bool has_bear_form_spell = !!GetSpell(_baseSpellForShapeshift(DRUID_BEAR_FORM));
+                if ((IsTank() || (IsWanderer() && !has_cat_form_spell)) && has_bear_form_spell)
+                    form = DRUID_BEAR_FORM;
+                else if (HasRole(BOT_ROLE_DPS))
+                    form = has_cat_form_spell ? DRUID_CAT_FORM : has_bear_form_spell ? DRUID_BEAR_FORM : BOT_STANCE_NONE;
+            }
+            if (form == BOT_STANCE_NONE && HasRole(BOT_ROLE_DPS))
+                form = (!HasRole(BOT_ROLE_HEAL) && !!GetSpell(_baseSpellForShapeshift(DRUID_MOONKIN_FORM))) ? DRUID_MOONKIN_FORM : BOT_STANCE_NONE;
+            if (form == BOT_STANCE_NONE && HasRole(BOT_ROLE_HEAL))
+                form = (!HasRole(BOT_ROLE_DPS) && !!GetSpell(_baseSpellForShapeshift(DRUID_TREE_FORM))) ? DRUID_TREE_FORM : BOT_STANCE_NONE;
+            return form;
+        }
+
         //Treants
-        ObjectGuid _treants[MAX_TREANTS];
+        std::array<ObjectGuid, MAX_TREANTS> _treants;
         //Timers/other
 /*Form*/BotStances _form;
 /*Misc*/mutable bool primalFuryProc;
@@ -2927,9 +3012,10 @@ public:
 /*Misc*/uint32 ragetimer;
         bool hibery;
         uint32 hiberyCheckTimer;
+        uint32 prePullHealTimer;
 /*Misc*/int32 rage, energy;
 
-        typedef std::unordered_map<uint32 /*baseId*/, int32 /*amount*/> HealMap;
+        using HealMap = std::unordered_map<uint32 /*baseId*/, int32 /*amount*/>;
         HealMap _heals;
     };
 };

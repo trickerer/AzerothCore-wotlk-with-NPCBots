@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -17,12 +17,13 @@
 
 #include "RealmList.h"
 #include "DatabaseEnv.h"
-#include "DeadlineTimer.h"
-#include "IoContext.h"
 #include "Log.h"
+#include "QueryResult.h"
 #include "Resolver.h"
+#include "SteadyTimer.h"
 #include "Util.h"
 #include <boost/asio/ip/tcp.hpp>
+#include <memory>
 
 RealmList::RealmList() : _updateInterval(0) { }
 
@@ -36,7 +37,7 @@ RealmList* RealmList::Instance()
 void RealmList::Initialize(Acore::Asio::IoContext& ioContext, uint32 updateInterval)
 {
     _updateInterval = updateInterval;
-    _updateTimer = std::make_unique<Acore::Asio::DeadlineTimer>(ioContext);
+    _updateTimer = std::make_unique<boost::asio::steady_timer>(ioContext);
     _resolver = std::make_unique<Acore::Asio::Resolver>(ioContext);
 
     LoadBuildInfo();
@@ -227,7 +228,7 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
 
     if (_updateInterval)
     {
-        _updateTimer->expires_from_now(boost::posix_time::seconds(_updateInterval));
+        _updateTimer->expires_at(Acore::Asio::SteadyTimer::GetExpirationTime(_updateInterval));
         _updateTimer->async_wait([this](boost::system::error_code const& errorCode){ UpdateRealms(errorCode); });
     }
 }

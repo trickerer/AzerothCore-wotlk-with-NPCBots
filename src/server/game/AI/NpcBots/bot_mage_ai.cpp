@@ -1,4 +1,5 @@
 #include "bot_ai.h"
+#include "botlogtraits.h"
 #include "botmgr.h"
 #include "botspell.h"
 #include "bottraits.h"
@@ -145,23 +146,15 @@ enum MageSpecial
     IGNITE_TRIGGERED                    = 12654
 };
 
-static const uint32 Mage_spells_damage_arr[] =
+static const std::vector<uint32> Mage_spells_damage
 { ARCANEMISSILES_1, ARCANE_BLAST_1, BLAST_WAVE_1, BLIZZARD_1, CONE_OF_COLD_1, DEEP_FREEZE_1, DRAGON_BREATH_1, FIREBALL_1,
-FIRE_BLAST_1, FLAMESTRIKE_1, FROSTBOLT_1, FROSTFIRE_BOLT_1, FROST_NOVA_1, ICE_LANCE_1, LIVING_BOMB_1, PYROBLAST_1,
-SCORCH_1 };
-
-static const uint32 Mage_spells_cc_arr[] =
-{ COUNTERSPELL_1, DRAGON_BREATH_1, DEEP_FREEZE_1, FROST_NOVA_1, POLYMORPH_1 };
-
-static const uint32 Mage_spells_support_arr[] =
+FIRE_BLAST_1, FLAMESTRIKE_1, FROSTBOLT_1, FROSTFIRE_BOLT_1, FROST_NOVA_1, ICE_LANCE_1, LIVING_BOMB_1, PYROBLAST_1, SCORCH_1 };
+static const std::vector<uint32> Mage_spells_cc{ COUNTERSPELL_1, DRAGON_BREATH_1, DEEP_FREEZE_1, FROST_NOVA_1, POLYMORPH_1 };
+static const std::vector<uint32> Mage_spells_support
 { AMPLIFYMAGIC_1, ARCANEINTELLECT_1, BLINK_1, COMBUSTION_1, DAMPENMAGIC_1, EVOCATION_1, FIRE_WARD_1, FROST_WARD_1,
 FROST_ARMOR_1, FOCUS_MAGIC_1, ICE_BARRIER_1, ICE_BLOCK_1, ICY_VEINS_1, INVISIBILITY_1, ICE_ARMOR_1, MOLTEN_ARMOR_1,
 SLOW_FALL_1, SPELLSTEAL_1, REMOVE_CURSE_1, CONJURE_MANA_GEM_1, RITUAL_OF_REFRESHMENT_1, SUMMON_WATER_ELEMENTAL_1,
 COLD_SNAP_1, PRESENCE_OF_MIND_1, ARCANE_POWER_1 };
-
-static const std::vector<uint32> Mage_spells_damage(FROM_ARRAY(Mage_spells_damage_arr));
-static const std::vector<uint32> Mage_spells_cc(FROM_ARRAY(Mage_spells_cc_arr));
-static const std::vector<uint32> Mage_spells_support(FROM_ARRAY(Mage_spells_support_arr));
 
 class mage_bot : public CreatureScript
 {
@@ -223,45 +216,26 @@ public:
 
         void Counter(uint32 diff)
         {
-            //skip if evocation, blizzard
-            if (IsChanneling() || Rand() > 30)
+            if (Rand() > 30)
                 return;
 
-            if (IsSpellReady(COUNTERSPELL_1, diff, false))
-            {
-                if (Unit* target = FindCastingTarget(CalcSpellMaxRange(COUNTERSPELL_1), 0, COUNTERSPELL_1))
-                {
-                    me->InterruptNonMeleeSpells(false);
-                    if (doCast(target, GetSpell(COUNTERSPELL_1)))
+            if (IsSpellReady(COUNTERSPELL_1, diff, false) && !HasQueuedSpellAction(COUNTERSPELL_1))
+                if (Unit const* target = FindCastingTarget(CalcSpellMaxRange(COUNTERSPELL_1), 0, COUNTERSPELL_1))
+                    if (EnqueueCounterSpellAction(target->GetGUID(), COUNTERSPELL_1, true))
                         return;
-                }
-            }
-            if (IsSpellReady(DEEP_FREEZE_1, diff) && me->HasAuraType(SPELL_AURA_ABILITY_IGNORE_AURASTATE))
-            {
-                if (Unit* target = FindCastingTarget(CalcSpellMaxRange(DEEP_FREEZE_1), 0, DEEP_FREEZE_1))
-                {
-                    me->InterruptNonMeleeSpells(false);
-                    if (doCast(target, GetSpell(DEEP_FREEZE_1)))
+            if (IsSpellReady(DEEP_FREEZE_1, diff, false) && me->HasAuraType(SPELL_AURA_ABILITY_IGNORE_AURASTATE) && !HasQueuedSpellAction(DEEP_FREEZE_1))
+                if (Unit const* target = FindCastingTarget(CalcSpellMaxRange(DEEP_FREEZE_1), 0, DEEP_FREEZE_1))
+                    if (EnqueueCounterSpellAction(target->GetGUID(), DEEP_FREEZE_1, true))
                         return;
-                }
-            }
-            if (IsSpellReady(FIRE_BLAST_1, diff) && me->HasAura(IMPACT_BUFF))
-            {
-                if (Unit* target = FindCastingTarget(CalcSpellMaxRange(FIRE_BLAST_1), 0, FIRE_BLAST_1))
-                {
-                    me->InterruptNonMeleeSpells(false);
-                    if (doCast(target, GetSpell(FIRE_BLAST_1)))
+            if (IsSpellReady(FIRE_BLAST_1, diff, false) && me->HasAura(IMPACT_BUFF) && !HasQueuedSpellAction(FIRE_BLAST_1))
+                if (Unit const* target = FindCastingTarget(CalcSpellMaxRange(FIRE_BLAST_1), 0, FIRE_BLAST_1))
+                    if (EnqueueCounterSpellAction(target->GetGUID(), FIRE_BLAST_1, true))
                         return;
-                }
-            }
-            if (!IsCasting() && IsSpellReady(POLYMORPH_1, diff))
-            {
-                if (Unit* target = FindCastingTarget(CalcSpellMaxRange(POLYMORPH_1), 0, POLYMORPH_1, 75))
-                {
-                    if (doCast(target, GetSpell(POLYMORPH_1)))
-                        return;
-                }
-            }
+            if (!IsCasting() && IsSpellReady(POLYMORPH_1, diff, false) && !HasQueuedSpellAction(POLYMORPH_1))
+                if (Unit const* target = FindCastingTarget(CalcSpellMaxRange(POLYMORPH_1), 0, POLYMORPH_1, 75))
+                    if (IsCastingOnMyParty(target, 1500))
+                        if (EnqueueCounterSpellAction(target->GetGUID(), POLYMORPH_1, true))
+                            return;
         }
 
         void CheckSpellSteal(uint32 diff)
@@ -437,7 +411,7 @@ public:
             //ICY VEINS (no GCD)
             if (IsSpellReady(ICY_VEINS_1, diff, false) && me->IsInCombat() && GetManaPCT(me) > 20 &&
                 (mytar->GetMaxHealth() > master->GetMaxHealth() * 2 ||
-                (mytar->GetTypeId() == TYPEID_UNIT && mytar->ToCreature()->GetCreatureTemplate()->rank != CREATURE_ELITE_NORMAL)) &&
+                (mytar->IsCreature() && mytar->ToCreature()->GetCreatureTemplate()->rank != CREATURE_ELITE_NORMAL)) &&
                 Rand() < 45)
             {
                 if (doCast(me, GetSpell(ICY_VEINS_1)))
@@ -446,7 +420,7 @@ public:
             //ARCANE POWER (no GCD, not with PoM)
             if (IsSpellReady(ARCANE_POWER_1, diff, false) && me->IsInCombat() && GetManaPCT(me) > 50 &&
                 (mytar->GetMaxHealth() > master->GetMaxHealth() * 2 ||
-                (mytar->GetTypeId() == TYPEID_UNIT && mytar->ToCreature()->GetCreatureTemplate()->rank != CREATURE_ELITE_NORMAL)) &&
+                (mytar->IsCreature() && mytar->ToCreature()->GetCreatureTemplate()->rank != CREATURE_ELITE_NORMAL)) &&
                 Rand() < 75 && !me->GetAuraEffect(SPELL_AURA_ADD_PCT_MODIFIER, SPELLFAMILY_MAGE, 0x0, 0x20, 0x0))
             {
                 if (doCast(me, GetSpell(ARCANE_POWER_1)))
@@ -490,8 +464,8 @@ public:
             }
             //MIRROR IMAGE
             if (IsSpellReady(MIRROR_IMAGE_1, diff) &&
-                (mytar->GetTypeId() == TYPEID_PLAYER ||
-                (mytar->GetTypeId() == TYPEID_UNIT && mytar->ToCreature()->GetCreatureTemplate()->rank != CREATURE_ELITE_NORMAL)) &&
+                (mytar->IsPlayer() ||
+                (mytar->IsCreature() && mytar->ToCreature()->GetCreatureTemplate()->rank != CREATURE_ELITE_NORMAL)) &&
                 Rand() < 25)
             {
                 if (doCast(me, GetSpell(MIRROR_IMAGE_1)))
@@ -519,7 +493,8 @@ public:
                 }
             }
 
-            auto [can_do_frost, can_do_fire, can_do_arcane] = CanAffectVictimBools(mytar, SPELL_SCHOOL_FROST, SPELL_SCHOOL_FIRE, SPELL_SCHOOL_ARCANE);
+            const auto [can_do_frost, can_do_fire, can_do_arcane] = CanAffectVictimBools(mytar, SPELL_SCHOOL_FROST, SPELL_SCHOOL_FIRE, SPELL_SCHOOL_ARCANE);
+            const auto can_do_frost_or_fire = can_do_frost || can_do_fire;
 
             //spell reflections: Ice Lance instant / Frostbolt Rank 1
             if (IsSpellReady(ICE_LANCE_1, diff) && can_do_frost && dist < CalcSpellMaxRange(ICE_LANCE_1) && CanRemoveReflectSpells(mytar, ICE_LANCE_1) &&
@@ -594,7 +569,7 @@ public:
                     return;
             }
             //Fireball or Frostfire Bolt (instant cast or combustion use up)
-            if (/*fbCasted && */IsSpellReady(FROSTFIREBOLT, diff) && (can_do_frost | can_do_fire) && dist < CalcSpellMaxRange(FROSTFIREBOLT) && Rand() < 150 &&
+            if (/*fbCasted && */IsSpellReady(FROSTFIREBOLT, diff) && can_do_frost_or_fire && dist < CalcSpellMaxRange(FROSTFIREBOLT) && Rand() < 150 &&
                 ((((CCed(mytar, true) || b_attackers.empty()) && me->HasAura(COMBUSTION_BUFF)) || me->HasAura(BRAIN_FREEZE_BUFF)) ||
                 !GetSpell(FROSTBOLT_1))) //level 1-3
             {
@@ -619,7 +594,7 @@ public:
             }
             if (GetSpec() != BOT_SPEC_MAGE_ARCANE || !GetSpell(ARCANE_BLAST_1))
             {
-                if (IsSpellReady(FROSTFIREBOLT, diff) && (can_do_frost | can_do_fire) && (GetSpec() == BOT_SPEC_MAGE_FIRE ||
+                if (IsSpellReady(FROSTFIREBOLT, diff) && can_do_frost_or_fire && (GetSpec() == BOT_SPEC_MAGE_FIRE ||
                     (GetSpec() == BOT_SPEC_MAGE_FROST && (FROSTFIREBOLT == FROSTFIRE_BOLT_1 || !GetSpell(FROSTBOLT_1)))) &&
                     dist < CalcSpellMaxRange(FROSTFIREBOLT))
                 {
@@ -627,7 +602,7 @@ public:
                         return;
                 }
 
-                if (IsSpellReady(FROSTBOLT_1, diff) && can_do_frost && GetSpec() != BOT_SPEC_MAGE_FIRE && dist < CalcSpellMaxRange(FROSTBOLT_1))
+                if (IsSpellReady(FROSTBOLT_1, diff) && can_do_frost && (GetSpec() != BOT_SPEC_MAGE_FIRE || !can_do_fire) && dist < CalcSpellMaxRange(FROSTBOLT_1))
                 {
                     if (doCast(mytar, GetSpell(FROSTBOLT_1)))
                         return;
@@ -720,7 +695,7 @@ public:
             }
             if (!cast && me->IsInCombat() && !me->getAttackers().empty() && HasRole(BOT_ROLE_RANGED))
             {
-                cast = me->HasAuraWithMechanic((1<<MECHANIC_STUN)|(1<<MECHANIC_ROOT));
+                cast = me->HasAuraWithMechanic((1u<<MECHANIC_STUN)|(1u<<MECHANIC_ROOT));
                 if (!cast)
                 {
                     u = me->SelectNearestTarget(7);
@@ -778,8 +753,10 @@ public:
             if (Group const* gr = master->GetGroup())
             {
                 std::vector<Unit*> members = BotMgr::GetAllGroupMembers(gr);
-                for (uint8 i = 0; i < 3 && !targets.empty(); ++i)
+                for (auto i : NPCBots::index_array<uint8, 3>)
                 {
+                    if (!targets.empty())
+                        break;
                     for (Unit* member : members)
                     {
                         if (!(i == 0 ? member->IsPlayer() : member->IsNPCBot()) || me->GetMap() != member->FindMap() ||
@@ -809,7 +786,7 @@ public:
 
             if (!targets.empty())
             {
-                Unit* target = targets.size() == 1u ? *targets.begin() : Acore::Containers::SelectRandomContainerElement(targets);
+                Unit* target = targets.size() == 1u ? *targets.begin() : Bcore::Containers::SelectRandomContainerElement(targets);
                 if (doCast(target, FOCUSMAGIC))
                 {
                     fmCheckTimer = 30000;
@@ -902,7 +879,7 @@ public:
 
         void CheckWard(uint32 diff)
         {
-            if ((!me->IsInCombat() && !me->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE)) ||
+            if ((!me->IsInCombat() && !me->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE)) || me->HasAuraType(SPELL_AURA_REFLECT_SPELLS_SCHOOL) ||
                 !IsSpellReady(FROST_WARD_1, diff) || IsCasting())
                 return;
 
@@ -1151,6 +1128,26 @@ public:
             casttime = std::max<int32>(casttime - timebonus, 0);
         }
 
+        void ApplyClassSpellNotLoseCastTimeMods(SpellInfo const* spellInfo, int32& delayReduce) const override
+        {
+            uint32 baseId = spellInfo->GetFirstRankSpell()->Id;
+            SpellSchoolMask schools = spellInfo->GetSchoolMask();
+            uint8 lvl = me->GetLevel();
+            int32 reduceBonus = 0;
+
+            if (AuraEffect const* vei = me->GetAuraEffect(SPELL_AURA_MOD_CASTING_SPEED_NOT_STACK, SPELLFAMILY_MAGE, 0x0, 0x4000, 0x0))
+                if (vei->IsAffectedOnSpell(spellInfo))
+                    reduceBonus += 100;
+
+            if (lvl >= 20 && (schools & SPELL_SCHOOL_MASK_FIRE))
+                reduceBonus += 70;
+
+            if (GetSpec() == BOT_SPEC_MAGE_ARCANE && lvl >= 10 && (baseId == ARCANEMISSILES_1 || baseId == ARCANE_BLAST_1))
+                reduceBonus += 100;
+
+            delayReduce += reduceBonus;
+        }
+
         void ApplyClassSpellCooldownMods(SpellInfo const* spellInfo, uint32& cooldown) const override
         {
             //cooldown is in milliseconds
@@ -1253,7 +1250,7 @@ public:
             //{
             //    std::ostringstream msg;
             //    msg << "OnClassSpellGo: " << spellInfo->SpellName[0] << " (" << spellId << ")!";
-            //    BotWhisper(msg.str().c_str());
+            //    BotWhisper(msg.view());
             //}
 
             if (baseId == SUMMON_WATER_ELEMENTAL_1)
@@ -1334,18 +1331,16 @@ public:
             //Handle Cold Snap
             if (baseId == COLD_SNAP_1)
             {
-                SpellInfo const* cdInfo;
-                BotSpellMap const& myspells = GetSpellMap();
-                for (BotSpellMap::const_iterator itr = myspells.begin(); itr != myspells.end(); ++itr)
+                for (auto& [rank1_id, spell] : GetSpellMap())
                 {
-                    if (itr->first == baseId)
+                    if (rank1_id == baseId)
                         continue;
-                    if (itr->second->spellId != 0 && itr->second->cooldown > 0)
+                    if (spell.spellId != 0 && spell.cooldown > 0)
                     {
-                        cdInfo = sSpellMgr->GetSpellInfo(itr->first);
+                        SpellInfo const* cdInfo = sSpellMgr->GetSpellInfo(rank1_id);
                         if (cdInfo && cdInfo->SpellFamilyName == SPELLFAMILY_MAGE && cdInfo->GetRecoveryTime() > 0 &&
                             (cdInfo->GetSchoolMask() & SPELL_SCHOOL_MASK_FROST))
-                            ResetSpellCooldown(itr->first);
+                            spell.cooldown = 0;
                     }
                 }
             }
@@ -1377,7 +1372,7 @@ public:
                     return;
 
                 //handle effects
-                for (uint8 i = 0; i != MAX_SPELL_EFFECTS; ++i)
+                for (auto i : NPCBots::index_array<uint8, MAX_SPELL_EFFECTS>)
                 {
                     switch (spell->Effects[i].Effect)
                     {
@@ -1533,9 +1528,9 @@ public:
             OnSpellHit(caster, spell);
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
-            bot_ai::DamageDealt(victim, damage, damageType);
+            bot_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override
@@ -1589,7 +1584,7 @@ public:
 
         void SummonedCreatureDespawn(Creature* summon) override
         {
-            //TC_LOG_ERROR("entities.unit", "SummonedCreatureDespawn: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
+            //BOT_LOG_ERROR("entities.unit", "SummonedCreatureDespawn: %s's %s", me->GetName().c_str(), summon->GetName().c_str());
             if (summon == botPet)
                 botPet = nullptr;
         }
@@ -1644,7 +1639,7 @@ public:
         void InitSpells() override
         {
             uint8 lvl = me->GetLevel();
-            //bool isArca = GetSpec() == BOT_SPEC_MAGE_ARCANE;
+            bool isArca = GetSpec() == BOT_SPEC_MAGE_ARCANE;
             bool isFire = GetSpec() == BOT_SPEC_MAGE_FIRE;
             bool isFros = GetSpec() == BOT_SPEC_MAGE_FROST;
 
@@ -1686,8 +1681,8 @@ public:
             InitSpellMap(RITUAL_OF_REFRESHMENT_1); //not casted
 
   /*Talent*/lvl >= 20 ? InitSpellMap(FOCUS_MAGIC_1) : RemoveSpell(FOCUS_MAGIC_1);
-  /*Talent*/lvl >= 30 ? InitSpellMap(PRESENCE_OF_MIND_1) : RemoveSpell(PRESENCE_OF_MIND_1);
-  /*Talent*/lvl >= 40 ? InitSpellMap(ARCANE_POWER_1) : RemoveSpell(ARCANE_POWER_1);
+  /*Talent*/lvl >= 30 && (isArca || isFire) ? InitSpellMap(PRESENCE_OF_MIND_1) : RemoveSpell(PRESENCE_OF_MIND_1);
+  /*Talent*/lvl >= 40 && isArca ? InitSpellMap(ARCANE_POWER_1) : RemoveSpell(ARCANE_POWER_1);
 
   /*Talent*/lvl >= 20 ? InitSpellMap(PYROBLAST_1) : RemoveSpell(PYROBLAST_1);
   /*Talent*/lvl >= 30 && isFire ? InitSpellMap(BLAST_WAVE_1) : RemoveSpell(BLAST_WAVE_1);

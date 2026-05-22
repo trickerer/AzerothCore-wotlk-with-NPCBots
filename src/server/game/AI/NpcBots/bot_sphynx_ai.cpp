@@ -47,18 +47,9 @@ enum SphynxSpecial
     SPLASH_ATTACK_COST      = BASE_MANA_SPHYNX/16//6.25%
 };
 
-static const uint32 Sphynx_spells_damage_arr[] =
-{ /*MAIN_ATTACK_1, */SPLASH_ATTACK_1 };
-
-static const uint32 Sphynx_spells_heal_arr[] =
-{ REPLENISH_HEALTH_1 };
-
-static const uint32 Sphynx_spells_support_arr[] =
-{ DEVOUR_MAGIC_1, /*DRAIN_MANA_1, */REPLENISH_HEALTH_1, REPLENISH_MANA_1 };
-
-static const std::vector<uint32> Sphynx_spells_damage(FROM_ARRAY(Sphynx_spells_damage_arr));
-static const std::vector<uint32> Sphynx_spells_heal(FROM_ARRAY(Sphynx_spells_heal_arr));
-static const std::vector<uint32> Sphynx_spells_support(FROM_ARRAY(Sphynx_spells_support_arr));
+static const std::vector<uint32> Sphynx_spells_damage{ /*MAIN_ATTACK_1, */SPLASH_ATTACK_1 };
+static const std::vector<uint32> Sphynx_spells_heal{ REPLENISH_HEALTH_1 };
+static const std::vector<uint32> Sphynx_spells_support{ DEVOUR_MAGIC_1, /*DRAIN_MANA_1, */REPLENISH_HEALTH_1, REPLENISH_MANA_1 };
 
 class sphynx_bot : public CreatureScript
 {
@@ -244,12 +235,12 @@ public:
 
             std::list<Unit*> targets;
             GetNearbyFriendlyTargetsList(targets, 40);
-            targets.remove_if(BOTAI_PRED::DrainTargetExclude());
+            std::erase_if(targets, BOTAI_PRED::DrainTargetExclude());
 
             if (targets.empty())
                 return;
 
-            Unit* target = Acore::Containers::SelectRandomContainerElement(targets);
+            Unit* target = Bcore::Containers::SelectRandomContainerElement(targets);
             if (doCast(target, GetSpell(DRAIN_MANA_1)))
                 return;
         }
@@ -437,9 +428,9 @@ public:
             dispelsDealt += num;
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
-            bot_ai::DamageDealt(victim, damage, damageType);
+            bot_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& damage, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override

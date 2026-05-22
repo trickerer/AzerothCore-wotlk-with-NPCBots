@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -23,7 +23,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
-#include <utility>
 #undef min
 #undef max
 #include "mpq_libmpq04.h"
@@ -103,6 +102,11 @@ bool WMORoot::open()
         {
             DoodadData.Spawns.resize(size / sizeof(WMO::MODD));
             f.read(DoodadData.Spawns.data(), size);
+        }
+        else if (!strcmp(fourcc, "MOGN"))
+        {
+            GroupNames.resize(size);
+            f.read(GroupNames.data(), size);
         }
         /*
         else if (!strcmp(fourcc,"MOTX"))
@@ -396,8 +400,10 @@ int WMOGroup::ConvertToVMAPGroupWmo(FILE* output, bool preciseVectorData)
         for (int i = 0; i < nTriangles; ++i)
         {
             // Skip no collision triangles
+            // TODO: Update to use MOBR in the future to catch any possibly missed edge cases
             bool isRenderFace = (MOPY[2 * i] & WMO_MATERIAL_RENDER) && !(MOPY[2 * i] & WMO_MATERIAL_DETAIL);
-            bool isCollision = MOPY[2 * i] & WMO_MATERIAL_COLLISION || isRenderFace;
+            bool isCollisionOnlyFace = static_cast<unsigned char>(MOPY[(2 * i) + 1]) == 0xFF; // 255 is a collision-only material id
+            bool isCollision = MOPY[2 * i] & WMO_MATERIAL_COLLISION || isRenderFace || isCollisionOnlyFace;
             if (!isCollision)
                 continue;
             // Use this triangle
@@ -494,6 +500,22 @@ uint32 WMOGroup::GetLiquidTypeId(uint32 liquidTypeId)
         }
     }
     return liquidTypeId;
+}
+
+bool WMOGroup::ShouldSkip(WMORoot const* root) const
+{
+        // skip unreachable
+        if (mogpFlags & 0x80)
+                return true;
+
+        // skip antiportals
+        if (mogpFlags & 0x4000000)
+                return true;
+
+       if (groupName < int32(root->GroupNames.size()) && !strcmp(&root->GroupNames[groupName], "antiportal"))
+                return true;
+
+        return false;
 }
 
 WMOGroup::~WMOGroup()

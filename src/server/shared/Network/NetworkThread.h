@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -18,16 +18,14 @@
 #ifndef NetworkThread_h__
 #define NetworkThread_h__
 
-#include "DeadlineTimer.h"
 #include "Define.h"
 #include "Errors.h"
 #include "IoContext.h"
 #include "Log.h"
 #include "Socket.h"
-#include "Timer.h"
-#include <atomic>
 #include <boost/asio/ip/tcp.hpp>
-#include <chrono>
+#include <boost/asio/steady_timer.hpp>
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -93,13 +91,13 @@ public:
         SocketAdded(sock);
     }
 
-    tcp::socket* GetSocketForAccept() { return &_acceptSocket; }
+    IoContextTcpSocket* GetSocketForAccept() { return &_acceptSocket; }
 
     void EnableProxyProtocol() { _proxyHeaderReadingEnabled = true; }
 
 protected:
-    virtual void SocketAdded(std::shared_ptr<SocketType> /*sock*/) { }
-    virtual void SocketRemoved(std::shared_ptr<SocketType> /*sock*/) { }
+    virtual void SocketAdded(std::shared_ptr<SocketType> const& /*sock*/) { }
+    virtual void SocketRemoved(std::shared_ptr<SocketType> const& /*sock*/) { }
 
     void AddNewSockets()
     {
@@ -181,7 +179,7 @@ protected:
     {
         LOG_DEBUG("misc", "Network Thread Starting");
 
-        _updateTimer.expires_from_now(boost::posix_time::milliseconds(1));
+        _updateTimer.expires_at(std::chrono::steady_clock::now() + std::chrono::milliseconds(1));
         _updateTimer.async_wait([this](boost::system::error_code const&) { Update(); });
         _ioContext.run();
 
@@ -195,7 +193,7 @@ protected:
         if (_stopped)
             return;
 
-        _updateTimer.expires_from_now(boost::posix_time::milliseconds(1));
+        _updateTimer.expires_at(std::chrono::steady_clock::now() + std::chrono::milliseconds(1));
         _updateTimer.async_wait([this](boost::system::error_code const&) { Update(); });
 
         AddNewSockets();
@@ -231,8 +229,8 @@ private:
     SocketContainer _newSockets;
 
     Acore::Asio::IoContext _ioContext;
-    tcp::socket _acceptSocket;
-    Acore::Asio::DeadlineTimer _updateTimer;
+    IoContextTcpSocket _acceptSocket;
+    boost::asio::steady_timer _updateTimer;
 
     bool _proxyHeaderReadingEnabled;
 };

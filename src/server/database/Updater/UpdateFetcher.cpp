@@ -1,14 +1,14 @@
 /*
  * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU Affero General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
- * option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
  * more details.
  *
  * You should have received a copy of the GNU General Public License along
@@ -157,25 +157,33 @@ UpdateFetcher::DirectoryStorage UpdateFetcher::ReceiveIncludedDirectories() cons
         std::vector<std::string> moduleList;
 
         for (auto const& itr : Acore::Tokenize(_modulesList, ',', true))
-        {
             moduleList.emplace_back(itr);
-        }
 
         // data/sql
-        for (auto const& itr : moduleList)
+        for (auto const& moduleName : moduleList)
         {
-            std::string path = _sourceDirectory->generic_string() + "/modules/" + itr + "/data/sql/" + _dbModuleName; // modules/mod-name/data/sql/db-world
-
-            Path const p(path);
+            std::string path = _sourceDirectory->generic_string() + "/modules/" + moduleName + "/data/sql/"; // modules/mod-name/data/sql/
+            Path const p{path};
             if (!is_directory(p))
-            {
                 continue;
+
+            directory_iterator const end;
+            for (directory_iterator itr{p}; itr != end; ++itr)
+            {
+                if (!is_directory(itr->path()))
+                    continue;
+
+                std::filesystem::path dirPath = itr->path(); // modules/mod-name/data/sql/db-world
+                std::string dirName = dirPath.filename().string(); // db-world
+
+                if (dirName.find(_dbModuleName) == std::string::npos)
+                    continue;
+
+                DirectoryEntry const entry = { dirPath, AppliedFileEntry::StateConvert("MODULE") };
+                directories.push_back(entry);
+
+                LOG_TRACE("sql.updates", "Added applied modules file \"{}\" from remote.", dirPath.filename().generic_string());
             }
-
-            DirectoryEntry const entry = { p, AppliedFileEntry::StateConvert("MODULE") };
-            directories.push_back(entry);
-
-            LOG_TRACE("sql.updates", "Added applied modules file \"{}\" from remote.", p.filename().generic_string());
         }
     }
 
@@ -386,14 +394,14 @@ UpdateResult UpdateFetcher::Update(bool const redundancyChecks,
     // Apply default updates
     for (auto const& availableQuery : available)
     {
-        if (availableQuery.second != CUSTOM && availableQuery.second != MODULE)
+        if (availableQuery.second != PENDING && availableQuery.second != CUSTOM && availableQuery.second != MODULE)
             ApplyUpdateFile(availableQuery);
     }
 
-    // Apply only custom/module updates
+    // Apply only pending/custom/module updates
     for (auto const& availableQuery : available)
     {
-        if (availableQuery.second == CUSTOM || availableQuery.second == MODULE)
+        if (availableQuery.second == PENDING || availableQuery.second == CUSTOM || availableQuery.second == MODULE)
             ApplyUpdateFile(availableQuery);
     }
 

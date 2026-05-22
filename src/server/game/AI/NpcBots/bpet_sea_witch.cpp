@@ -61,7 +61,7 @@ public:
                 std::list<Unit*> targets;
                 petOwner->GetBotAI()->HelpGetNearbyTargetsList(targets, 10.f, 1, me);
                 if (targets.size() > 2)
-                    Acore::Containers::RandomResize(targets, 2);
+                    Bcore::Containers::RandomResize(targets, 2);
                 for (Unit* u : targets)
                     me->CastSpell(u, GetSpell(ENVELOP_1), true);
                 SetSpellCooldown(ENVELOP_1, 3000);
@@ -88,14 +88,14 @@ public:
             if (((liveTimer += diff) >= TORNADO_DURATION) || !petOwner->GetBotAI()->HasRole(BOT_ROLE_DPS))
             {
                 canUpdate = false;
-                me->ToTempSummon()->UnSummon(1);
+                me->ToTempSummon()->UnSummon(1ms);
                 return;
             }
             else if ((IsIndoors() && !me->IsOutdoors()) && (isIndoorsTimer += diff) >= TORNADO_DISSIPATE_TIMER)
             {
                 canUpdate = false;
-                me->SetObjectScale(me->GetCreatureTemplate()->scale / 2.f);
-                me->ToTempSummon()->UnSummon(2000);
+                me->SetObjectScale(me->GetCreatureTemplate()->GetFirstValidModel()->DisplayScale / 2.f);
+                me->ToTempSummon()->UnSummon(2000ms);
                 return;
             }
 
@@ -128,7 +128,7 @@ public:
                 SetBotCommandState(BOT_COMMAND_ATTACK);
                 me->SetTarget(opponent->GetGUID());
                 Position pos = opponent->GetNearPosition(frand(3.f, 5.f + opponent->GetCombatReach()), opponent->GetAbsoluteAngle(petOwner) + frand(float(-M_PI) / 2.f, float(M_PI) / 2.f));
-                me->GetMotionMaster()->MovePoint(me->GetMapId(), pos.GetPositionX(), pos.GetPositionY(), opponent->GetPositionZ(), false);
+                me->GetMotionMaster()->MovePoint(me->GetMapId(), pos, FORCED_MOVEMENT_NONE, 0.0f, false);
                 //me->GetMotionMaster()->MoveChase(opponent, frand(3.f, 10.f), opponent->GetAbsoluteAngle(petOwner) + frand(-M_PI / 2, M_PI / 2));
             }
         }
@@ -191,9 +191,9 @@ public:
             }
         }
 
-        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType) override
+        void DamageDealt(Unit* victim, uint32& damage, DamageEffectType damageType, SpellSchoolMask damageSchoolMask) override
         {
-            bot_pet_ai::DamageDealt(victim, damage, damageType);
+            bot_pet_ai::DamageDealt(victim, damage, damageType, damageSchoolMask);
         }
 
         void DamageTaken(Unit* u, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*schoolMask*/) override
