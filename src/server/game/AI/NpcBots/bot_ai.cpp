@@ -15380,7 +15380,7 @@ void bot_ai::FindMaster()
         {
             if (Player* player = ObjectAccessor::FindPlayerByLowGUID(guid_low))
             {
-                if (player->IsGameMaster() || player->GetSession()->isLogingOut() || player->GetSession()->PlayerLogout())
+                if (player->IsGameMaster() || player->GetSession()->IsLoggingOut() || player->GetSession()->PlayerLogout())
                     return;
 
                 if (SetBotOwner(player))

@@ -1383,7 +1383,7 @@ public:
         return true;
     }
 
-    static bool HandleNpcDoActionCommand(ChatHandler* handler, uint32 actionId)
+    static bool HandleNpcDoActionCommand(ChatHandler* handler, int32 actionId)
     {
         Creature* creature = handler->getSelectedCreature();
         if (!creature)
