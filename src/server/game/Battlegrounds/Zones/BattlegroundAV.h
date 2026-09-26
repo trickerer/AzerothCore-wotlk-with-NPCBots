@@ -1709,6 +1709,12 @@ struct BattlegroundAVScore final : public BattlegroundScore
 {
     friend class BattlegroundAV;
 
+    [[nodiscard]] uint32 GetGraveyardsAssaulted() const { return GraveyardsAssaulted; }
+    [[nodiscard]] uint32 GetGraveyardsDefended() const { return GraveyardsDefended; }
+    [[nodiscard]] uint32 GetTowersAssaulted() const { return TowersAssaulted; }
+    [[nodiscard]] uint32 GetTowersDefended() const { return TowersDefended; }
+    [[nodiscard]] uint32 GetMinesCaptured() const { return MinesCaptured; }
+
 protected:
     explicit BattlegroundAVScore(ObjectGuid playerGuid) : BattlegroundScore(playerGuid) { }
 
@@ -1799,7 +1805,6 @@ public:
     void EventBotDefendsPoint(Creature* bot, uint32 object);
     BG_AV_NodeInfo const (&GetNodes() const)[BG_AV_NODES_MAX] { return m_Nodes; }
     uint32 GetObjectThroughNodeForBot(BG_AV_Nodes node, bool log = false) { return GetObjectThroughNode(node, log); }
-    TeamId GetMineOwner(uint8 mine_idx) const { return m_Mine_Owner[mine_idx]; }
     //end npcbot
 
     /* achievement req. */
@@ -1807,6 +1812,14 @@ public:
     bool IsAllTowersControlledAndCaptainAlive(TeamId teamId) const;
 
     TeamId GetPrematureWinner() override;
+
+    [[nodiscard]] BG_AV_NodeInfo const& GetAVNodeInfo(uint32 node) const
+    {
+        ASSERT(node < BG_AV_NODES_MAX);
+        return m_Nodes[node];
+    }
+    [[nodiscard]] bool IsCaptainAlive(uint8 index) const { return index < PVP_TEAMS_COUNT && m_CaptainAlive[index]; }
+    [[nodiscard]] TeamId GetMineOwner(uint8 index) const { return index < PVP_TEAMS_COUNT ? m_Mine_Owner[index] : TEAM_NEUTRAL; }
 
 private:
     void PostUpdateImpl(uint32 diff) override;

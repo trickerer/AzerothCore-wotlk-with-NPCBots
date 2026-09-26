@@ -234,12 +234,8 @@ bool ChaseMovementGenerator<T>::DoUpdate(T* owner, uint32 time_diff)
         _lastTargetPosition.reset();
 
         if (cOwner)
-        {
-            if (!isStoppedBecauseOfCasting)
-                cOwner->UpdateLeashExtensionTime();
-
             cOwner->SetCannotReachTarget();
-        }
+
         return true;
     }
 
@@ -317,16 +313,7 @@ bool ChaseMovementGenerator<T>::DoUpdate(T* owner, uint32 time_diff)
 
     if (cOwner)
     {
-        if (owner->movespline->Finalized() && cOwner->IsWithinMeleeRange(target))
-        { // Mobs should chase you infinitely if you stop and wait every few seconds.
-            i_leashExtensionTimer.Update(time_diff);
-            if (i_leashExtensionTimer.Passed())
-            {
-                i_leashExtensionTimer.Reset(cOwner->GetAttackTime(BASE_ATTACK));
-                cOwner->UpdateLeashExtensionTime();
-            }
-        }
-        else if (i_recalculateTravel)
+        if (i_recalculateTravel)
             i_leashExtensionTimer.Reset(cOwner->GetAttackTime(BASE_ATTACK));
     }
 
@@ -487,6 +474,9 @@ void ChaseMovementGenerator<T>::MovementInform(T* owner)
 
 //-----------------------------------------------//
 
+// Sniffed: a pet catching up to its owner tops out at 2.6x the owner's current run speed.
+constexpr float FOLLOW_CATCHUP_MAX_MULTIPLIER = 2.6f;
+
 static float GetTargetSpeedInMotion(Unit* target)
 {
     if (!target->movespline->Finalized())
@@ -499,6 +489,10 @@ static Optional<float> GetVelocity(Unit* owner, Unit* target, G3D::Vector3 const
 {
     Optional<float> speed = {};
     if (owner->IsInCombat() || owner->IsVehicle() || owner->HasUnitFlag(UNIT_FLAG_POSSESSED))
+        return speed;
+
+    // Guardians without a pet bar (Mirror Image, Shaman Elementals, ...) keep their own run speed.
+    if (owner->IsGuardian() && !owner->IsControllableGuardian())
         return speed;
 
     bool isPetLike = owner->IsPet() || owner->IsGuardian() || owner->GetGUID() == target->GetCritterGUID() || owner->GetCharmerOrOwnerGUID() == target->GetGUID();
@@ -535,7 +529,7 @@ static Optional<float> GetVelocity(Unit* owner, Unit* target, G3D::Vector3 const
             float distance = owner->GetDistance2d(dest.x, dest.y) - target->GetObjectSize() - (*speed / 2.f);
             if (distance > 0.f)
             {
-                float multiplier = 1.f + (distance / 10.f);
+                float const multiplier = std::min(1.f + (distance / 10.f), FOLLOW_CATCHUP_MAX_MULTIPLIER);
                 *speed *= multiplier;
             }
         }
