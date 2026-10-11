@@ -204,17 +204,27 @@ void WorldSession::HandleLootMoneyOpcode(WorldPacket& /*recvData*/)
         sScriptMgr->OnPlayerBeforeLootMoney(player, loot);
         loot->NotifyMoneyRemoved();
         //npcbot
-        if (shareMoney && player->GetGroup() && BotCfg::GetNpcBotMoneyShareEnabled())
+        if (shareMoney && BotCfg::GetNpcBotMoneyShareEnabled())
         {
+            const float reward_dist_sq = std::pow(sWorld->getFloatConfig(CONFIG_GROUP_XP_DISTANCE), 2.f);
+            std::vector<Player*> playersAll;
             Group* group = player->GetGroup();
+            if (group)
+            {
+                playersAll.reserve(group->GetMembersCount());
+                for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+                {
+                    if (Player* member = itr->GetSource())
+                        if (member->IsInMap(player))
+                            playersAll.push_back(member);
+                }
+            }
+            else
+                playersAll.push_back(player);
             std::vector<Player*> playersNear;
             uint32 bots_count = 0;
-            for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+            for (Player* member : playersAll)
             {
-                Player* member = itr->GetSource();
-                if (!member)
-                    continue;
-
                 if (player->IsAtGroupRewardDistance(member))
                     playersNear.push_back(member);
 
@@ -225,8 +235,8 @@ void WorldSession::HandleLootMoneyOpcode(WorldPacket& /*recvData*/)
                 for (auto const& kv : *botMap)
                 {
                     Creature const* bot = kv.second;
-                    if (bot && bot->IsAlive() && bot->IsInMap(player) && (group->IsMember(kv.first) || !BotCfg::GetNpcBotMoneyShareGroupOnly()) &&
-                        (member->GetMap()->IsDungeon() || player->GetDistance(bot) <= sWorld->getFloatConfig(CONFIG_GROUP_XP_DISTANCE)))
+                    if (bot && bot->IsAlive() && bot->IsInMap(player) && (!BotCfg::GetNpcBotMoneyShareGroupOnly() || (group && group->IsMember(kv.first))) &&
+                        (member->GetMap()->IsDungeon() || player->GetExactDistSq(bot) <= reward_dist_sq))
                         ++bots_count;
                 }
             }

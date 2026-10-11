@@ -11963,7 +11963,7 @@ void bot_ai::_autoLootCreatureGold(Creature* creature) const
 
                 for (auto const& [guid, bot] : *member->GetBotMgr()->GetBotMap())
                 {
-                    if (bot && bot->IsAlive() && bot->IsInMap(creature) && (gr->IsMember(guid) || !BotCfg::GetNpcBotMoneyShareGroupOnly()) &&
+                    if (bot && bot->IsAlive() && bot->IsInMap(creature) && (!BotCfg::GetNpcBotMoneyShareGroupOnly() || gr->IsMember(guid)) &&
                         (member->GetMap()->IsDungeon() || creature->GetDistance(bot) <= sWorld->getFloatConfig(CONFIG_GROUP_XP_DISTANCE)))
                         ++bots_count;
                 }
