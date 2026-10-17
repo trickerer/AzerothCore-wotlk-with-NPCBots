@@ -703,6 +703,9 @@ namespace lfg
                         break;
                 }
             }
+
+            if (isRaid && joinData.result == LFG_JOIN_OK && !isOptionEnabled(LFG_OPTION_ENABLE_RAID_BROWSER))
+                joinData.result = LFG_JOIN_NOT_MEET_REQS;
         }
 
         if (!isRaid && joinData.result == LFG_JOIN_OK)
@@ -1182,6 +1185,9 @@ namespace lfg
 
     void LFGMgr::UpdateRaidBrowser(uint32 diff)
     {
+        if (!isOptionEnabled(LFG_OPTION_ENABLE_RAID_BROWSER))
+            return;
+
         for (uint8 team = 0; team < 2; ++team)
         {
             if (m_raidBrowserUpdateTimer[team] > diff)
