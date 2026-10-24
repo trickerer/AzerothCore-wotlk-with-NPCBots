@@ -2729,7 +2729,10 @@ void Spell::DoAllEffectOnTarget(TargetInfo* target)
 
     m_spellAura = nullptr; // Set aura to null for every target-make sure that pointer is not used for unit without aura applied
 
-    if (m_originalCaster && missInfo != SPELL_MISS_EVADE && !m_originalCaster->IsFriendlyTo(effectUnit) && (!m_spellInfo->IsPositive() || m_spellInfo->HasEffect(SPELL_EFFECT_DISPEL)) && (m_spellInfo->HasInitialAggro() || effectUnit->IsEngaged()))
+    if (m_originalCaster && missInfo != SPELL_MISS_EVADE && !HasTriggeredCastFlag(TRIGGERED_DONT_ENTER_COMBAT) &&
+        !m_originalCaster->IsFriendlyTo(effectUnit) &&
+        (!m_spellInfo->IsPositive() || m_spellInfo->HasEffect(SPELL_EFFECT_DISPEL)) &&
+        (m_spellInfo->HasInitialAggro() || effectUnit->IsEngaged()))
         effectUnit->SetInCombatWith(m_originalCaster);
 
     PrepareScriptHitHandlers();
@@ -3081,7 +3084,10 @@ void Spell::DoAllEffectOnTarget(TargetInfo* target)
     {
         if (missInfo != SPELL_MISS_EVADE && !unitCaster->IsFriendlyTo(effectUnit) && (!m_spellInfo->IsPositive() || m_spellInfo->HasEffect(SPELL_EFFECT_DISPEL)))
         {
-            if (!m_triggeredByAuraSpell.spellInfo || m_damage || (!(m_triggeredByAuraSpell.spellInfo->Effects[m_triggeredByAuraSpell.effectIndex].TriggerSpell == m_spellInfo->Id) && !(m_triggeredByAuraSpell.spellInfo->IsAuraEffectEqual(m_spellInfo))))
+            if (!HasTriggeredCastFlag(TRIGGERED_DONT_ENTER_COMBAT) &&
+                (!m_triggeredByAuraSpell.spellInfo || m_damage ||
+                    (!(m_triggeredByAuraSpell.spellInfo->Effects[m_triggeredByAuraSpell.effectIndex].TriggerSpell
+                        == m_spellInfo->Id) && !(m_triggeredByAuraSpell.spellInfo->IsAuraEffectEqual(m_spellInfo)))))
                 unitCaster->AtTargetAttacked(effectUnit, !(m_spellInfo->HasAttribute(SPELL_ATTR1_NO_THREAT) || m_spellInfo->HasAttribute(SPELL_ATTR3_SUPPRESS_TARGET_PROCS)));
 
             // Spells that don't initiate combat shouldn't affect stand state (e.g. Premeditation, Storm Giant/Felreaver Passive)
@@ -6260,7 +6266,11 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
             if (m_spellInfo->HasAttribute(SPELL_ATTR0_CU_REQ_TARGET_FACING_CASTER) && !target->HasInArc(static_cast<float>(M_PI), unitCaster))
                 return SPELL_FAILED_NOT_INFRONT;
 
-            if ((!unitCaster || !unitCaster->IsTotem() || !m_spellInfo->IsPositive()) && !m_spellInfo->HasAttribute(SPELL_ATTR2_IGNORE_LINE_OF_SIGHT) &&
+            // Ignore LOS for gameobject casts: one has no collision height, so the ray would start on its floor
+            // position, which the floor under a player standing on it can block. CheckEffectTarget still checks
+            // LOS for gameobjects that do not ignore it.
+            if (!m_caster->IsGameObject() && (!unitCaster || !unitCaster->IsTotem() || !m_spellInfo->IsPositive()) &&
+                !m_spellInfo->HasAttribute(SPELL_ATTR2_IGNORE_LINE_OF_SIGHT) &&
                 !m_spellInfo->HasAttribute(SPELL_ATTR5_ALWAYS_AOE_LINE_OF_SIGHT) && !(m_spellFlags & SPELL_FLAG_REDIRECTED))
             {
                 uint32 losChecks = LINEOFSIGHT_ALL_CHECKS;
@@ -6270,7 +6280,7 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
                     losChecks &= ~LINEOFSIGHT_CHECK_GOBJECT_M2;
                 }
 
-                if (!m_caster->IsWithinLOSInMap(target, VMAP::ModelIgnoreFlags::M2, LineOfSightChecks(losChecks), GetLOSCollisionHeight()))
+                if (!m_caster->IsWithinLOSInMap(target, VMAP::ModelIgnoreFlags::M2, LineOfSightChecks(losChecks)))
                 {
                     return SPELL_FAILED_LINE_OF_SIGHT;
                 }
@@ -8656,7 +8666,10 @@ bool Spell::CheckEffectTarget(Unit const* target, uint32 eff) const
             uint32 losChecks = LINEOFSIGHT_ALL_CHECKS;
             if (GameObject const* gobCaster = GetGameObjectCaster())
             {
-                if (gobCaster->GetGOInfo()->IsIgnoringLOSChecks())
+                // A trap without an owner has no height to see from, so the floor under its target would block it.
+                // An owned trap sees from its owner's height (GetLOSCollisionHeight), so a wall still blocks it.
+                if (gobCaster->GetGOInfo()->IsIgnoringLOSChecks() ||
+                    (gobCaster->GetGoType() == GAMEOBJECT_TYPE_TRAP && !gobCaster->GetOwnerGUID()))
                 {
                     return true;
                 }
@@ -8929,7 +8942,8 @@ void Spell::HandleLaunchPhase()
             }
         }
 
-        if (m_originalCaster && target.missCondition != SPELL_MISS_EVADE)
+        if (m_originalCaster && target.missCondition != SPELL_MISS_EVADE &&
+            !HasTriggeredCastFlag(TRIGGERED_DONT_ENTER_COMBAT))
         {
             Unit* targetUnit = m_caster->GetGUID() == target.targetGUID ? unitCaster : ObjectAccessor::GetUnit(*m_caster, target.targetGUID);
             if (targetUnit && !m_originalCaster->IsFriendlyTo(targetUnit) && (!m_spellInfo->IsPositive() || m_spellInfo->HasEffect(SPELL_EFFECT_DISPEL)) && (m_spellInfo->HasInitialAggro() || targetUnit->IsEngaged()))
@@ -9772,8 +9786,9 @@ namespace Acore
                         effectiveRange += unitTarget->GetCombatReach();
 
                 // override the range check for entry area targets
+                // players stay 3d, retail never hits them in 2d
                 float dist = target->GetExactDist(_position);
-                if (_targetSelectionType == TARGET_CHECK_ENTRY)
+                if (_targetSelectionType == TARGET_CHECK_ENTRY && !target->IsPlayer())
                     dist = target->GetExactDist2d(_position);
                 if (dist > effectiveRange)
                     return false;

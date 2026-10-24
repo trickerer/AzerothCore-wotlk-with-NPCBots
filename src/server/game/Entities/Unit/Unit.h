@@ -637,8 +637,6 @@ enum SpellCooldownFlags
 
 typedef std::unordered_map<uint32, uint32> PacketCooldowns;
 
-// delay time next attack to prevent client attack animation problems
-#define ATTACK_DISPLAY_DELAY 200
 #define MAX_PLAYER_STEALTH_DETECT_RANGE 30.0f               // max distance for detection targets by player
 
 enum class SpeedOpcodeIndex : uint32
@@ -909,7 +907,9 @@ public:
     [[nodiscard]] bool isAttackingPlayer() const;
     [[nodiscard]] Unit* GetVictim() const { return m_attacking; }
 
-    void CombatStop(bool includingCast = false, bool mutualPvP = true);
+    // keepPvPForOthers (only with mutualPvP): our pvp refs are only suppressed on our side, so the units fighting us
+    // leave combat when their pvp timer runs out (used on death)
+    void CombatStop(bool includingCast = false, bool mutualPvP = true, bool keepPvPForOthers = false);
     void CombatStopWithPets(bool includingCast = false);
     void StopAttackFaction(uint32 faction_id);
     void StopAttackingInvalidTarget();
@@ -949,7 +949,7 @@ public:
 
     [[nodiscard]] bool IsPetInCombat() const { return HasUnitFlag(UNIT_FLAG_PET_IN_COMBAT); }
     void SetInCombatWith(Unit* enemy, bool addSecondUnitSuppressed = false) { if (enemy) m_combatManager.SetInCombatWith(enemy, addSecondUnitSuppressed); }
-    void ClearInCombat();
+    void ClearInCombat(bool keepPvPForOthers = false);
     void ClearInPetCombat();
     [[nodiscard]] uint32 GetCombatTimer() const { return m_CombatTimer; }
     void SetCombatTimer(uint32 timer) { m_CombatTimer = timer; }
@@ -1714,7 +1714,8 @@ public:
     float CalculateLevelPenalty(SpellInfo const* spellProto) const;
 
     uint32 GetCastingTimeForBonus(SpellInfo const* spellProto, DamageEffectType damagetype, uint32 CastingTime) const;
-    void CastDelayedSpellWithPeriodicAmount(Unit* caster, uint32 spellId, AuraType auraType, int32 addAmount, uint8 effectIndex = 0);
+    void CastDelayedSpellWithPeriodicAmount(Unit* caster, uint32 spellId, AuraType auraType, int32 addAmount,
+        uint8 effectIndex = 0, TriggerCastFlags extraTriggerFlags = TRIGGERED_NONE);
 
     // SpellCastResult methods
     // WorldObject spellcasting port: bring the inherited entry point into
