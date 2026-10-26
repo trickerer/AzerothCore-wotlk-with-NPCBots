@@ -2388,6 +2388,9 @@ public:
 
         void SpellHit(Unit* wcaster, SpellInfo const* spell) override
         {
+            if (!wcaster)
+                return;
+
             Unit* caster = wcaster->ToUnit();
             if (!caster)
                 return;
