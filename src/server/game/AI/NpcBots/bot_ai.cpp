@@ -19252,10 +19252,10 @@ WanderNode const* bot_ai::GetNextBGTravelNode() const
     {
         case BATTLEGROUND_AV:
         {
-            const uint32 CRETYPE_CAPTAIN_A = AV_CPLACE_MAX + 61;
-            const uint32 CRETYPE_CAPTAIN_H = AV_CPLACE_MAX + 59;
-            const uint32 CRETYPE_BOSS_A = AV_CPLACE_MAX + 60;
-            const uint32 CRETYPE_BOSS_H = AV_CPLACE_MAX + 122;
+            const uint32 CRETYPE_CAPTAIN_A = AV_CPLACE_MAX + 60;
+            const uint32 CRETYPE_CAPTAIN_H = AV_CPLACE_MAX + 58;
+            const uint32 CRETYPE_BOSS_A = AV_CPLACE_MAX + 59;
+            const uint32 CRETYPE_BOSS_H = AV_CPLACE_MAX + 121;
 
             static const std::function boss_room_wp_pred_a = [](WanderNode const* wp) { return wp->HasAllFlags(BotWPFlags::BOTWP_FLAG_ALLIANCE_BOSS_ROOM); };
             static const std::function boss_room_wp_pred_h = [](WanderNode const* wp) { return wp->HasAllFlags(BotWPFlags::BOTWP_FLAG_HORDE_BOSS_ROOM); };
